@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "npm run electron:compile && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && NODE_ENV=development electron dist-electron/main.js\"",
     "build": "vite build && npm run electron:compile",
-    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:compile": "tsc -p electron/tsconfig.json && cp electron/preload.cjs dist-electron/preload.cjs && node --check dist-electron/preload.cjs",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
