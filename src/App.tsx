@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { CompanionState, TaskSnapshot } from "./types";
+import type { CompanionState, RecallAnswer, TaskSnapshot } from "./types";
 import {
   conciseSpeech,
   createBrowserRecognition,
@@ -25,6 +25,8 @@ export function App() {
   const sessionRef = useRef<VoiceSession | null>(null);
   const lastSpokenRef = useRef("");
   const taskRef = useRef<TaskSnapshot | null>(null);
+  const [recallQuestion, setRecallQuestion] = useState("");
+  const [recall, setRecall] = useState<RecallAnswer | null>(null);
 
   useEffect(() => { taskRef.current = task; }, [task]);
 
@@ -59,7 +61,7 @@ export function App() {
         void window.companion.startTask(event.goal).then(setTask).catch((error: Error) => setVoiceMessage(error.message));
       } else if (event.type === "stop") {
         const activeTask = taskRef.current;
-        if (activeTask?.status === "waiting_approval" || activeTask?.status === "running") {
+        if (activeTask && ["waiting_approval", "needs_decision", "suspended", "running"].includes(activeTask.status)) {
           void window.companion.cancelTask(activeTask.id);
         }
       } else if (event.type === "degraded") {
@@ -85,6 +87,13 @@ export function App() {
     const trimmed = goal.trim();
     if (!trimmed || (task && ["waiting_approval", "needs_decision", "suspended", "running"].includes(task.status))) return;
     setTask(await window.companion.startTask(trimmed));
+  }
+
+  async function recallPastWork(event: FormEvent) {
+    event.preventDefault();
+    const question = recallQuestion.trim();
+    if (!question) return;
+    setRecall(await window.companion.recallMemory(question));
   }
 
   return (
@@ -143,27 +152,20 @@ export function App() {
           </div>
         </section>
       ) : (
-        <form className="command-bar" onSubmit={submit}>
-          <label htmlFor="goal">What should I take care of?</label>
-          <div>
-            <input
-              id="goal"
-              value={goal}
-              onChange={(event) => setGoal(event.target.value)}
-              placeholder="Open a browser, research something, or work on a file…"
-              disabled={task?.status === "running"}
-            />
-            {task?.status === "running" ? (
-              <button
-                type="button"
-                className="button-stop"
-                onClick={() => window.companion.cancelTask(task.id)}
-              >
-                Stop task
-              </button>
-            ) : <button className="button-primary" type="submit">Ask BMO</button>}
-          </div>
-        </form>
+        <section className="command-stack">
+          <form className="command-bar" onSubmit={submit}>
+            <label htmlFor="goal">What should I take care of?</label>
+            <div>
+              <input id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Open a browser, research something, or work on a file…" disabled={task?.status === "running"} />
+              {task?.status === "running" ? <button type="button" className="button-stop" onClick={() => window.companion.cancelTask(task.id)}>Stop task</button> : <button className="button-primary" type="submit">Ask BMO</button>}
+            </div>
+          </form>
+          <form className="recall-bar" onSubmit={recallPastWork}>
+            <label htmlFor="recall">Ask about a completed Task</label>
+            <div><input id="recall" value={recallQuestion} onChange={(event) => setRecallQuestion(event.target.value)} placeholder="What did we finish for the website last week?" /><button type="submit">Recall</button></div>
+            {recall && <p className="recall-answer">{recall.answer}{recall.references.length > 0 && <small>{recall.references.map((reference) => ` Task ${reference.taskId.slice(0, 6)}${reference.source ? ` · ${reference.source.sourceName}` : " · Activity Ledger"}`).join(" ·")}</small>}</p>}
+          </form>
+        </section>
       )}
     </main>
   );

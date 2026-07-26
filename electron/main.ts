@@ -3,10 +3,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { CodexRecoveryObserver, CodexTaskExecutor } from "./codex-adapter.js";
 import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
+import { CompanionMemoryService, JsonMemoryStore } from "./memory-service.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let runtime: TaskRuntime;
+let memory: CompanionMemoryService;
 
 function createStage() {
   const primary = screen.getPrimaryDisplay();
@@ -40,6 +42,7 @@ function createStage() {
 }
 
 app.whenReady().then(() => {
+  memory = new CompanionMemoryService(new JsonMemoryStore(join(app.getPath("userData"), "companion-memory.json")));
   runtime = new TaskRuntime(
     new CodexTaskExecutor(),
     new JsonlActivityLedger(join(app.getPath("userData"), "activity-ledger.jsonl")),
@@ -47,6 +50,9 @@ app.whenReady().then(() => {
     undefined,
     new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
     new CodexRecoveryObserver(),
+    undefined,
+    undefined,
+    memory,
   );
   void runtime.restore();
   const reminderClock = setInterval(() => void runtime.sendDueReminders(), 30_000);
@@ -62,5 +68,6 @@ ipcMain.handle("task:extend-approval", (_event, id: string) => runtime.extendApp
 ipcMain.handle("task:recover", (_event, id: string) => runtime.recover(id));
 ipcMain.handle("task:deny", (_event, id: string) => runtime.deny(id));
 ipcMain.handle("task:cancel", (_event, id: string) => runtime.cancel(id));
+ipcMain.handle("memory:recall", (_event, question: string) => memory.recall(question.trim()));
 
 app.on("window-all-closed", () => app.quit());

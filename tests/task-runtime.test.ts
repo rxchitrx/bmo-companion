@@ -169,3 +169,45 @@ test("repeated failed Directive Tasks suspend their Standing Directive", async (
   await runtime.approve(task.id);
   assert.ok(ledger.events.some((event) => event.type === "directive.suspended" && event.directiveId === "morning-briefing"));
 });
+
+test("a Verified Outcome creates bounded memory tied to its Task Ledger entry", async () => {
+  const ledger = new MemoryLedger();
+  const remembered: Array<{ taskId: string; goal: string; summary: string }> = [];
+  const runtime = new TaskRuntime(
+    { async execute() { return { summary: "The project page is published.", verified: true }; } },
+    ledger,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { async rememberCompletedTask(input) { remembered.push(input); } },
+  );
+  const task = await runtime.create("Publish the project page");
+  await runtime.approve(task.id);
+
+  assert.deepEqual(remembered, [{ taskId: task.id, goal: "Publish the project page", summary: "The project page is published.", artifacts: undefined }]);
+  assert.equal(ledger.events.at(-1)?.taskId, task.id);
+});
+
+test("a memory write failure does not erase a Verified Outcome", async () => {
+  const ledger = new MemoryLedger();
+  let latestStatus = "";
+  const runtime = new TaskRuntime(
+    { async execute() { return { summary: "The task is verified.", verified: true }; } },
+    ledger,
+    (task) => { latestStatus = task.status; },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { async rememberCompletedTask() { throw new Error("disk unavailable"); } },
+  );
+  const task = await runtime.create("Complete a safe task");
+  await runtime.approve(task.id);
+
+  assert.equal(latestStatus, "completed");
+  assert.equal(ledger.events.at(-1)?.type, "memory.write_failed");
+});
