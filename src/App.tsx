@@ -83,7 +83,7 @@ export function App() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const trimmed = goal.trim();
-    if (!trimmed || (task && ["waiting_approval", "running"].includes(task.status))) return;
+    if (!trimmed || (task && ["waiting_approval", "needs_decision", "suspended", "running"].includes(task.status))) return;
     setTask(await window.companion.startTask(trimmed));
   }
 
@@ -126,19 +126,19 @@ export function App() {
         </div>
       </section>
 
-      {task?.status === "waiting_approval" ? (
+      {task && ["waiting_approval", "needs_decision", "suspended"].includes(task.status) ? (
         <section className="approval-panel">
           <div>
             <small>ONE TASK · UP TO TWO HOURS</small>
-            <strong>Let Codex control this Mac for this task?</strong>
+            <strong>{task.status === "waiting_approval" ? "Let Codex control this Mac for this task?" : task.summary}</strong>
             <p>{task.goal}</p>
           </div>
           <div className="approval-actions">
             <button className="button-text" onClick={() => window.companion.denyTask(task.id)}>
               Keep Mac unchanged
             </button>
-            <button className="button-primary" onClick={() => window.companion.approveTask(task.id)}>
-              Allow this task
+            <button className="button-primary" onClick={() => task.status === "waiting_approval" ? window.companion.approveTask(task.id) : task.status === "needs_decision" ? window.companion.extendTaskApproval(task.id) : window.companion.recoverTask(task.id)}>
+              {task.status === "waiting_approval" ? "Allow this task" : task.status === "needs_decision" ? "Extend approval" : "Check and continue"}
             </button>
           </div>
         </section>
