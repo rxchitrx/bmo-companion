@@ -144,7 +144,7 @@ input {
   outline: none;
 }
 input:focus { box-shadow: 0 0 0 0.2rem oklch(64% 0.12 175 / 0.42); }
-.button-primary, .button-stop, .button-text {
+.button-primary, .button-stop, .button-text, .button-voice {
   min-height: 2.85rem;
   padding: 0.7rem 1rem;
   border: 0.12rem solid var(--ink);
@@ -153,6 +153,9 @@ input:focus { box-shadow: 0 0 0 0.2rem oklch(64% 0.12 175 / 0.42); }
 }
 .button-primary { background: oklch(39% 0.1 178); color: oklch(96% 0.02 160); box-shadow: 0.22rem 0.24rem 0 var(--ink); }
 .button-stop { background: oklch(69% 0.18 28); color: var(--ink); }
+.button-voice { background: oklch(70% 0.14 260); color: var(--ink); }
+.button-voice:disabled { cursor: not-allowed; opacity: 0.55; }
+.button-voice--header { margin-left: 0.5rem; min-height: 2.2rem; padding: 0.35rem 0.6rem; font-size: 0.68rem; letter-spacing: 0.06em; }
 .button-text { background: transparent; }
 button:active { transform: translate(0.14rem, 0.14rem); box-shadow: none; }
 
@@ -162,6 +165,7 @@ button:active { transform: translate(0.14rem, 0.14rem); box-shadow: none; }
 .approval-panel p { margin: 0.3rem 0 0; opacity: 0.78; }
 
 .stage--thinking .eyes span, .stage--working .eyes span { animation: eye-focus 1.9s ease-in-out infinite; }
+.stage--listening .eyes span { animation: listen 700ms ease-in-out infinite alternate; }
 .stage--working .console { animation: work-float 2.4s ease-in-out infinite; }
 .stage--speaking .mouth { animation: speak 420ms ease-in-out infinite alternate; }
 .stage--error { background: oklch(78% 0.09 43); }
@@ -169,6 +173,7 @@ button:active { transform: translate(0.14rem, 0.14rem); box-shadow: none; }
 @keyframes eye-focus { 50% { transform: scaleY(0.18); } }
 @keyframes work-float { 50% { transform: translateY(-1rem); } }
 @keyframes speak { to { transform: scaleY(0.42); } }
+@keyframes listen { to { transform: translateY(-0.35rem) scaleY(0.78); } }
 
 @media (max-height: 760px) {
   .console { min-height: 25rem; width: min(54rem, 72vw); height: 65vh; }

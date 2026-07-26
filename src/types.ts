@@ -1,5 +1,6 @@
 export type CompanionState =
   | "idle"
+  | "listening"
   | "approval"
   | "thinking"
   | "working"
