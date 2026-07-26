@@ -35,5 +35,11 @@ export interface CompanionApi {
   recoverTask(taskId: string): Promise<void>;
   denyTask(taskId: string): Promise<void>;
   cancelTask(taskId: string): Promise<void>;
+  recallMemory(question: string): Promise<RecallAnswer>;
   onTaskUpdate(listener: (task: TaskSnapshot) => void): () => void;
+}
+
+export interface RecallAnswer {
+  answer: string;
+  references: Array<{ taskId: string; ledgerReference: string; source?: { label: string; sourceName: string; sourceUrl?: string } }>;
 }

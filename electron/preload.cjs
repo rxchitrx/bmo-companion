@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("companion", {
   recoverTask: (taskId) => ipcRenderer.invoke("task:recover", taskId),
   denyTask: (taskId) => ipcRenderer.invoke("task:deny", taskId),
   cancelTask: (taskId) => ipcRenderer.invoke("task:cancel", taskId),
+  recallMemory: (question) => ipcRenderer.invoke("memory:recall", question),
   onTaskUpdate: (listener) => {
     const handler = (_event, task) => listener(task);
     ipcRenderer.on("task:update", handler);

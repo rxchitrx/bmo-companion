@@ -31,7 +31,11 @@ export interface StoredTask {
   executionSurfaceAvailable: boolean;
 }
 
-export interface ExecutionResult { summary: string; verified: boolean; }
+export interface ExecutionResult {
+  summary: string;
+  verified: boolean;
+  artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
+}
 
 export interface TaskExecutor {
   execute(goal: string, signal: AbortSignal, progress: (message: string) => void): Promise<ExecutionResult>;
@@ -54,6 +58,13 @@ export interface DirectiveTracker {
 
 export interface AttentionPolicy {
   laterReminderMinutes: number;
+}
+
+export interface CompletedTaskMemory {
+  rememberCompletedTask(input: {
+    taskId: string; goal: string; summary: string;
+    artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
+  }): Promise<unknown>;
 }
 
 export class JsonlActivityLedger implements ActivityLedger {
@@ -116,6 +127,7 @@ export class TaskRuntime {
     private readonly observer: RecoveryObserver = new RequiresOwnerDecisionObserver(),
     private readonly directives: DirectiveTracker = new NoopDirectiveTracker(),
     private readonly attentionPolicy: AttentionPolicy = { laterReminderMinutes: 30 },
+    private readonly memory?: CompletedTaskMemory,
   ) {}
 
   /** Restores context only. Call recover() before any external work can continue. */
@@ -282,6 +294,18 @@ export class TaskRuntime {
       if (result.verified) {
         stored.task.status = "completed"; stored.task.state = "speaking"; stored.task.progress.push("Verified Outcome recorded.");
         await this.persist("task.completed", { verified: true });
+        try {
+          await this.memory?.rememberCompletedTask({
+            taskId: stored.task.id,
+            goal: stored.task.goal,
+            summary: result.summary,
+            artifacts: result.artifacts,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Memory write failed.";
+          stored.task.progress.push("Task completed, but its memory candidate could not be saved.");
+          await this.record("memory.write_failed", stored.task, { error: message });
+        }
       } else await this.fail(stored, "Codex finished without sufficient verification.", { verified: false });
     } catch (error) {
       if (this.current !== stored || this.abortController?.signal.aborted) return;
