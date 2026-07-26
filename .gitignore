@@ -1,6 +1,8 @@
 # Local research checkouts and generated runtime state
 work/
 node_modules/
+dist-ui/
+dist-electron/
 .DS_Store
 
 # Local secrets and machine-specific configuration

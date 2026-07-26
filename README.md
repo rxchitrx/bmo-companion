@@ -4,12 +4,13 @@ A design and prototype repository for a private, full-screen macOS AI Companion:
 
 ## Current status
 
-This repository contains the accepted product architecture, ADRs, implementation PRD, editable architecture diagram, and early Codex Computer Use/realtime protocol proofs. The first build target is a complete vertical slice:
+This repository now contains the first working vertical slice alongside the accepted product architecture, ADRs, implementation PRD, editable architecture diagram, and early Codex protocol proofs:
 
-1. Full-screen BMO Stage.
-2. Realtime voice via ChatGPT-authenticated Codex WebRTC where available.
-3. A general natural-language Codex Task.
-4. One scoped approval, visible progress, Verified Outcome, and an Activity Ledger entry.
+1. Full-screen selected-display BMO Stage.
+2. A general typed natural-language Codex Task.
+3. One scoped approval, projected progress, Verified Outcome, and a local Activity Ledger entry.
+
+![First BMO Stage vertical slice](outputs/slice-01-stage.png)
 
 The implementation decisions and safety model are in [the PRD](docs/COMPANION_PRD.md). The shared domain vocabulary is in [CONTEXT.md](CONTEXT.md), and durable rationale lives in [docs/adr](docs/adr).
 
@@ -32,3 +33,22 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 ## Prototype caveat
 
 The proof scripts expect a local Codex/ChatGPT installation and may require local environment variables. They are research artifacts, not a supported SDK or production interface.
+
+## Run the first vertical slice
+
+Requirements: macOS, Node.js 20+, the ChatGPT/Codex desktop app installed and authenticated, and the relevant Codex capabilities enabled.
+
+```bash
+npm install
+npm run dev
+```
+
+BMO selects a non-primary display when available. Enter a general goal, review the one-Task approval, and choose **Allow this task**. Set `CODEX_CLI_PATH` only when Codex is installed somewhere other than the normal ChatGPT application bundle.
+
+Verification:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```

@@ -1,0 +1,178 @@
+:root {
+  color: oklch(24% 0.055 186);
+  background: oklch(78% 0.105 177);
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+  font-synthesis: none;
+  --mint: oklch(78% 0.105 177);
+  --mint-light: oklch(88% 0.055 164);
+  --ink: oklch(24% 0.055 186);
+  --deep: oklch(37% 0.085 178);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+
+.stage {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  padding: clamp(1.25rem, 3vw, 3.5rem);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 30%, oklch(88% 0.06 164 / 0.62), transparent 43%),
+    var(--mint);
+  transition: background-color 300ms var(--ease-out);
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.08;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+}
+
+.status-line {
+  width: min(66rem, 92vw);
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.status-dot {
+  width: 0.7rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: oklch(61% 0.13 168);
+  box-shadow: 0 0 0 0.35rem oklch(88% 0.06 164);
+}
+.task-id { margin-left: auto; font-variant-numeric: tabular-nums; opacity: 0.64; }
+
+.console {
+  width: min(64rem, 78vw);
+  height: min(72vh, 48rem);
+  min-height: 32rem;
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr 34%;
+  border: 0.18rem solid var(--ink);
+  border-radius: clamp(2.2rem, 5vw, 5rem);
+  background: color-mix(in oklch, var(--mint) 90%, var(--mint-light));
+  box-shadow: 0.75rem 0.9rem 0 var(--deep);
+  transform: translateY(-0.5rem);
+}
+
+.console-screen {
+  margin: clamp(1.6rem, 4vw, 3.8rem);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  position: relative;
+  border: 0.18rem solid var(--ink);
+  border-radius: clamp(1.4rem, 3vw, 3rem);
+  background: var(--mint-light);
+  box-shadow: inset 0.45rem 0.5rem 0 oklch(66% 0.08 176 / 0.28);
+  overflow: hidden;
+}
+
+.eyes { width: 42%; display: flex; justify-content: space-between; align-items: center; }
+.eyes span { width: clamp(1.05rem, 2vw, 1.8rem); height: clamp(2.6rem, 5vw, 4.8rem); border-radius: 50%; background: var(--ink); }
+.mouth {
+  width: clamp(5rem, 11vw, 9.5rem);
+  height: clamp(2.8rem, 6vw, 5.2rem);
+  margin-top: clamp(1.4rem, 3vw, 2.5rem);
+  overflow: hidden;
+  border: 0.18rem solid var(--ink);
+  border-radius: 20% 20% 50% 50%;
+  background: oklch(36% 0.115 175);
+  transform-origin: center top;
+}
+.mouth i { display: block; height: 34%; background: oklch(95% 0.02 105); border-bottom: 0.15rem solid var(--ink); }
+.thought {
+  position: absolute;
+  bottom: 1.2rem;
+  width: 80%;
+  margin: 0;
+  text-align: center;
+  font-size: clamp(0.85rem, 1.25vw, 1.08rem);
+  line-height: 1.45;
+  font-weight: 650;
+  max-height: 3.2em;
+  overflow: hidden;
+}
+
+.controls { position: relative; }
+.speaker { position: absolute; left: 10%; top: 15%; width: 33%; height: 15%; border: 0.17rem solid var(--ink); background: var(--deep); box-shadow: 0.35rem 0.35rem 0 var(--ink); }
+.button { position: absolute; border-radius: 50%; border: 0.17rem solid var(--ink); box-shadow: 0.28rem 0.28rem 0 var(--ink); }
+.button--blue { width: 6%; aspect-ratio: 1; left: 51%; top: 14%; background: oklch(45% 0.16 270); }
+.button--pink { width: 10%; aspect-ratio: 1; right: 18%; top: 42%; background: oklch(65% 0.22 354); }
+.button--green { width: 7.5%; aspect-ratio: 1; right: 10%; top: 25%; background: oklch(72% 0.19 132); }
+.button--yellow { width: 6%; aspect-ratio: 1; right: 28%; top: 25%; background: oklch(86% 0.18 97); }
+.dpad { position: absolute; left: 17%; top: 42%; width: 13%; aspect-ratio: 1; }
+.dpad span { position: absolute; inset: 35% 0; background: oklch(90% 0.18 100); border: 0.16rem solid var(--ink); }
+.dpad span:last-child { transform: rotate(90deg); }
+
+.command-bar, .approval-panel {
+  width: min(66rem, 92vw);
+  margin-top: 1.3rem;
+  padding: 1rem 1.1rem;
+  background: oklch(91% 0.045 165);
+  border: 0.14rem solid var(--ink);
+  box-shadow: 0.35rem 0.4rem 0 var(--deep);
+}
+.command-bar label { display: block; margin: 0 0 0.55rem 0.15rem; font-weight: 750; }
+.command-bar > div, .approval-actions { display: flex; gap: 0.7rem; }
+input {
+  flex: 1;
+  min-width: 0;
+  border: 0.12rem solid var(--ink);
+  background: oklch(97% 0.02 160);
+  color: var(--ink);
+  padding: 0.85rem 1rem;
+  outline: none;
+}
+input:focus { box-shadow: 0 0 0 0.2rem oklch(64% 0.12 175 / 0.42); }
+.button-primary, .button-stop, .button-text {
+  min-height: 2.85rem;
+  padding: 0.7rem 1rem;
+  border: 0.12rem solid var(--ink);
+  font-weight: 780;
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+.button-primary { background: oklch(39% 0.1 178); color: oklch(96% 0.02 160); box-shadow: 0.22rem 0.24rem 0 var(--ink); }
+.button-stop { background: oklch(69% 0.18 28); color: var(--ink); }
+.button-text { background: transparent; }
+button:active { transform: translate(0.14rem, 0.14rem); box-shadow: none; }
+
+.approval-panel { display: flex; justify-content: space-between; align-items: center; gap: 2rem; }
+.approval-panel small { display: block; font-weight: 800; letter-spacing: 0.12em; margin-bottom: 0.35rem; }
+.approval-panel strong { display: block; font-size: 1.08rem; }
+.approval-panel p { margin: 0.3rem 0 0; opacity: 0.78; }
+
+.stage--thinking .eyes span, .stage--working .eyes span { animation: eye-focus 1.9s ease-in-out infinite; }
+.stage--working .console { animation: work-float 2.4s ease-in-out infinite; }
+.stage--speaking .mouth { animation: speak 420ms ease-in-out infinite alternate; }
+.stage--error { background: oklch(78% 0.09 43); }
+
+@keyframes eye-focus { 50% { transform: scaleY(0.18); } }
+@keyframes work-float { 50% { transform: translateY(-1rem); } }
+@keyframes speak { to { transform: scaleY(0.42); } }
+
+@media (max-height: 760px) {
+  .console { min-height: 25rem; width: min(54rem, 72vw); height: 65vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
