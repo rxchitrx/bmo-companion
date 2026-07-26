@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, screen } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CodexTaskExecutor } from "./codex-adapter.js";
-import { JsonlActivityLedger, TaskRuntime } from "./task-runtime.js";
+import { CodexRecoveryObserver, CodexTaskExecutor } from "./codex-adapter.js";
+import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -44,12 +44,22 @@ app.whenReady().then(() => {
     new CodexTaskExecutor(),
     new JsonlActivityLedger(join(app.getPath("userData"), "activity-ledger.jsonl")),
     (task) => mainWindow?.webContents.send("task:update", task),
+    undefined,
+    new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
+    new CodexRecoveryObserver(),
   );
+  void runtime.restore();
+  const reminderClock = setInterval(() => void runtime.sendDueReminders(), 30_000);
+  reminderClock.unref();
+  powerMonitor.on("lock-screen", () => void runtime.setExecutionSurfaceAvailable(false));
+  powerMonitor.on("unlock-screen", () => void runtime.setExecutionSurfaceAvailable(true));
   createStage();
 });
 
 ipcMain.handle("task:start", (_event, goal: string) => runtime.create(goal.trim()));
 ipcMain.handle("task:approve", (_event, id: string) => runtime.approve(id));
+ipcMain.handle("task:extend-approval", (_event, id: string) => runtime.extendApproval(id));
+ipcMain.handle("task:recover", (_event, id: string) => runtime.recover(id));
 ipcMain.handle("task:deny", (_event, id: string) => runtime.deny(id));
 ipcMain.handle("task:cancel", (_event, id: string) => runtime.cancel(id));
 

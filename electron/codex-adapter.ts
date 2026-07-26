@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { ExecutionResult, TaskExecutor } from "./task-runtime.js";
+import type { ExecutionResult, RecoveryObserver, TaskExecutor, TaskSnapshot } from "./task-runtime.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -190,6 +190,85 @@ Goal: ${goal}`,
       signal.removeEventListener("abort", stop);
       stop();
       this.child = null;
+    }
+  }
+}
+
+/**
+ * A separate, read-only Codex turn used exclusively by Restart Recovery. It
+ * refuses every request that could operate a Mac, service, or file, and only
+ * returns whether the saved Task scope still matches what it can observe.
+ */
+export class CodexRecoveryObserver implements RecoveryObserver {
+  async observe(task: TaskSnapshot): Promise<{ scopeStillMatches: boolean; detail?: string }> {
+    const codex = process.env.CODEX_CLI_PATH || "/Applications/ChatGPT.app/Contents/Resources/codex";
+    if (!existsSync(codex)) return { scopeStillMatches: false, detail: "Codex is unavailable to re-observe the current state." };
+
+    const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
+      cwd: process.cwd(), env: { ...process.env }, detached: true, stdio: ["pipe", "pipe", "pipe"],
+    });
+    child.stdout.setEncoding("utf8");
+    let nextId = 1;
+    let buffer = "";
+    let finalText = "";
+    const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+    let resolveTurn: ((value: any) => void) | undefined;
+    const turnDone = new Promise<any>((resolve) => { resolveTurn = resolve; });
+    const send = (message: JsonRpcMessage) => child.stdin.write(`${JSON.stringify(message)}\n`);
+    const request = (method: string, params: Record<string, unknown> = {}) => {
+      const id = nextId++;
+      send({ id, method, params });
+      return new Promise<any>((resolve, reject) => pending.set(id, { resolve, reject }));
+    };
+    const denyAction = (message: JsonRpcMessage) => {
+      // Recovery may observe only through the app-server's read-only sandbox.
+      // It must never inherit the original Task's authority or approval.
+      send({ id: message.id, result: { decision: "decline" } });
+    };
+    const handle = (message: JsonRpcMessage) => {
+      if (message.id != null && message.method) { denyAction(message); return; }
+      if (message.id != null) {
+        const waiter = pending.get(message.id);
+        if (!waiter) return;
+        pending.delete(message.id);
+        if (message.error) waiter.reject(new Error(message.error.message ?? "Codex recovery request failed"));
+        else waiter.resolve(message.result);
+        return;
+      }
+      const params = message.params ?? {};
+      if (message.method === "item/agentMessage/delta") finalText += String(params.delta ?? "");
+      else if (message.method === "item/completed" && params.item?.type === "agentMessage" && params.item.text) finalText = params.item.text;
+      else if (message.method === "turn/completed") resolveTurn?.(params);
+    };
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      while (buffer.includes("\n")) {
+        const newline = buffer.indexOf("\n");
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        try { handle(JSON.parse(line) as JsonRpcMessage); } catch { /* JSONL only */ }
+      }
+    });
+    const stop = () => { try { process.kill(-child.pid!, "SIGTERM"); } catch { child.kill(); } };
+
+    try {
+      await request("initialize", { clientInfo: { name: "bmo-companion", title: "BMO Companion", version: "0.1.0" } });
+      send({ method: "initialized" });
+      const thread = await request("thread/start", {
+        cwd: process.cwd(), ephemeral: true, sandbox: "read-only", approvalsReviewer: "user",
+      });
+      await request("turn/start", {
+        threadId: thread.thread.id,
+        input: [{ type: "text", text: `You are a read-only Restart Recovery observer for BMO. Do not perform, request, suggest, or approve any action. Do not modify files, applications, browser state, services, or accounts. Inspect only state available without an approval. Compare it to this saved Task scope:\n\nGoal: ${task.goal}\nLast known status: ${task.status}\nLast recorded progress: ${task.progress.at(-1) ?? "none"}\n\nReturn exactly one line: STATE MATCHES: <brief observation> if the current observable state still safely matches the scope, otherwise STATE CHANGED: <brief reason>. If you cannot directly observe enough state, return STATE CHANGED.` }],
+      });
+      await turnDone;
+      const detail = finalText.trim() || "Recovery observation returned no usable state.";
+      return { scopeStillMatches: detail.startsWith("STATE MATCHES:"), detail };
+    } catch (error) {
+      return { scopeStillMatches: false, detail: error instanceof Error ? error.message : "Recovery observation failed." };
+    } finally {
+      stop();
     }
   }
 }

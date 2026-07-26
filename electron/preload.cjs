@@ -6,6 +6,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("companion", {
   startTask: (goal) => ipcRenderer.invoke("task:start", goal),
   approveTask: (taskId) => ipcRenderer.invoke("task:approve", taskId),
+  extendTaskApproval: (taskId) => ipcRenderer.invoke("task:extend-approval", taskId),
+  recoverTask: (taskId) => ipcRenderer.invoke("task:recover", taskId),
   denyTask: (taskId) => ipcRenderer.invoke("task:deny", taskId),
   cancelTask: (taskId) => ipcRenderer.invoke("task:cancel", taskId),
   onTaskUpdate: (listener) => {
