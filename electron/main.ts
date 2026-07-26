@@ -22,7 +22,7 @@ function createStage() {
     fullscreenable: true,
     backgroundColor: "#78cdb8",
     webPreferences: {
-      preload: join(currentDir, "preload.js"),
+      preload: join(currentDir, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
