@@ -243,7 +243,9 @@ export class TaskRuntime {
     const interval = stored.reminderIndex === 0 ? 3
       : stored.reminderIndex === 1 ? 5
       : this.attentionPolicy.laterReminderMinutes;
-    const cadenceMinutes = REMINDER_MINUTES[Math.min(stored.reminderIndex, REMINDER_MINUTES.length - 1)];
+    const cadenceMinutes = stored.reminderIndex < REMINDER_MINUTES.length
+      ? REMINDER_MINUTES[stored.reminderIndex]
+      : this.attentionPolicy.laterReminderMinutes;
     stored.reminderIndex += 1;
     stored.nextReminderAt = this.afterMinutes(interval);
     await this.persist("task.reminder", { cadenceMinutes, attentionPolicyAware: stored.reminderIndex > REMINDER_MINUTES.length });

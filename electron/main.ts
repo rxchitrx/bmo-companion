@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, screen } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CodexTaskExecutor } from "./codex-adapter.js";
+import { CodexRecoveryObserver, CodexTaskExecutor } from "./codex-adapter.js";
 import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -46,10 +46,13 @@ app.whenReady().then(() => {
     (task) => mainWindow?.webContents.send("task:update", task),
     undefined,
     new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
+    new CodexRecoveryObserver(),
   );
   void runtime.restore();
   const reminderClock = setInterval(() => void runtime.sendDueReminders(), 30_000);
   reminderClock.unref();
+  powerMonitor.on("lock-screen", () => void runtime.setExecutionSurfaceAvailable(false));
+  powerMonitor.on("unlock-screen", () => void runtime.setExecutionSurfaceAvailable(true));
   createStage();
 });
 

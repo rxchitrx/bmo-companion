@@ -90,7 +90,7 @@ test("pending approvals remind at 2, 5, and 10 minutes, then use the attention c
 
   assert.deepEqual(
     ledger.events.filter((event) => event.type === "task.reminder").map((event) => event.cadenceMinutes),
-    [2, 5, 10, 10],
+    [2, 5, 10, 30],
   );
   assert.equal(ledger.events.filter((event) => event.type === "task.reminder").at(-1)?.attentionPolicyAware, true);
 });
