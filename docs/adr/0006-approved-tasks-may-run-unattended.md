@@ -1,0 +1,3 @@
+# Approved tasks may run unattended
+
+An explicit Task Approval may authorize an Unattended Task to continue consequential Delegated Actions while the person is away, until the task ends or its approval expires. When macOS temporarily prevents desktop control, the Task is suspended and automatically resumes after access returns if the authority remains valid and its scope has not changed. We chose this over pausing all consequential work at lock or absence because the Companion is intended to complete delegated work autonomously; the approval UI must make the scope, expiry and unattended nature clear.

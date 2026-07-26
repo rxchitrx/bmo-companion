@@ -1,0 +1,11 @@
+# Local research checkouts and generated runtime state
+work/
+node_modules/
+.DS_Store
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key

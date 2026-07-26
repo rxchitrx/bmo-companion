@@ -1,0 +1,3 @@
+# The ledger retains outcomes, not raw evidence
+
+The Activity Ledger retains the durable record of signals, authority, actions, outcomes and references indefinitely, while raw screenshots, audio and fetched source material remain in a short-lived Evidence Cache unless the person explicitly creates a Pinned Artifact. The Evidence Retention Policy discards raw microphone audio and screen frames after processing; it discards fetched source material after Verified Outcome, or within 24 hours when a Task remains unresolved. This preserves accountability and recall without turning the Companion into a permanent archive of every observed private surface.
