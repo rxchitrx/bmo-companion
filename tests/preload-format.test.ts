@@ -12,4 +12,10 @@ test("the sandboxed preload uses Electron-loadable CommonJS", async () => {
   assert.match(source, /require\(["']electron["']\)/);
   assert.doesNotMatch(source, /^\s*import\s/m);
   assert.match(source, /contextBridge\.exposeInMainWorld\(["']companion["']/);
+  assert.match(source, /sendConversation:\s*\(text\)/);
+  assert.match(source, /startRealtimeVoice:\s*\(offerSdp\)/);
+  assert.match(source, /stopRealtimeVoice:\s*\(\)/);
+  assert.match(source, /onConversationUpdate:\s*\(listener\)/);
+  assert.match(source, /onRealtimeVoiceUpdate:\s*\(listener\)/);
+  assert.match(source, /logDiagnostic:\s*\(event\)/);
 });

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { ExecutionResult, RecoveryObserver, TaskExecutor, TaskSnapshot } from "./task-runtime.js";
+import { diagnosticLog, textMeta } from "./diagnostics.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -21,6 +22,11 @@ export class CodexTaskExecutor implements TaskExecutor {
     const codex =
       process.env.CODEX_CLI_PATH ||
       "/Applications/ChatGPT.app/Contents/Resources/codex";
+    diagnosticLog("codex.task", "execution.requested", {
+      goal: textMeta(goal),
+      binaryExists: existsSync(codex),
+      aborted: signal.aborted,
+    });
     if (!existsSync(codex)) throw new Error(`Codex executable not found: ${codex}`);
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
@@ -30,6 +36,7 @@ export class CodexTaskExecutor implements TaskExecutor {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
+    diagnosticLog("codex.task", "process.spawned", { pid: child.pid });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
 
@@ -44,8 +51,14 @@ export class CodexTaskExecutor implements TaskExecutor {
     let resolveTurn: ((value: any) => void) | undefined;
     const turnDone = new Promise<any>((resolve) => { resolveTurn = resolve; });
 
-    const send = (message: JsonRpcMessage) =>
+    const send = (message: JsonRpcMessage) => {
+      diagnosticLog("codex.task", "rpc.send", {
+        id: message.id,
+        method: message.method,
+        paramKeys: Object.keys(message.params ?? {}),
+      });
       child.stdin.write(`${JSON.stringify(message)}\n`);
+    };
     const request = (method: string, params: Record<string, unknown> = {}) => {
       const id = nextId++;
       send({ id, method, params });
@@ -56,6 +69,11 @@ export class CodexTaskExecutor implements TaskExecutor {
 
     const acceptServerRequest = (message: JsonRpcMessage) => {
       const params = message.params ?? {};
+      diagnosticLog("codex.task", "rpc.server_request", {
+        id: message.id,
+        method: message.method,
+        paramKeys: Object.keys(params),
+      });
       if (message.method === "item/permissions/requestApproval") {
         send({ id: message.id, result: { scope: "turn", permissions: params.permissions ?? {} } });
       } else if (
@@ -98,11 +116,31 @@ export class CodexTaskExecutor implements TaskExecutor {
         const waiter = pending.get(message.id);
         if (!waiter) return;
         pending.delete(message.id);
-        if (message.error) waiter.reject(new Error(message.error.message ?? "Codex request failed"));
-        else waiter.resolve(message.result);
+        if (message.error) {
+          diagnosticLog("codex.task", "rpc.response.error", {
+            id: message.id,
+            error: message.error.message,
+            code: message.error.code,
+          });
+          waiter.reject(new Error(message.error.message ?? "Codex request failed"));
+        } else {
+          diagnosticLog("codex.task", "rpc.response.ok", {
+            id: message.id,
+            resultKeys: Object.keys(message.result ?? {}),
+          });
+          waiter.resolve(message.result);
+        }
         return;
       }
       const params = message.params ?? {};
+      diagnosticLog("codex.task", "rpc.notification", {
+        method: message.method,
+        itemType: params.item?.type,
+        itemStatus: params.item?.status,
+        turnStatus: params.turn?.status,
+        delta: params.delta,
+        message: params.message,
+      });
       if (message.method === "item/agentMessage/delta") {
         finalText += String(params.delta ?? "");
       } else if (message.method === "item/started") {
@@ -126,11 +164,20 @@ export class CodexTaskExecutor implements TaskExecutor {
         const line = buffer.slice(0, newline).trim();
         buffer = buffer.slice(newline + 1);
         if (!line) continue;
-        try { handle(JSON.parse(line) as JsonRpcMessage); } catch { /* app-server is JSONL */ }
+        try { handle(JSON.parse(line) as JsonRpcMessage); }
+        catch { diagnosticLog("codex.task", "rpc.unparsed_line", { chars: line.length }); }
       }
     });
+    child.stderr.on("data", (chunk: string) => {
+      for (const line of chunk.split("\n").filter(Boolean)) {
+        diagnosticLog("codex.task", "process.stderr", { line });
+      }
+    });
+    child.once("exit", (code, processSignal) =>
+      diagnosticLog("codex.task", "process.exited", { code, signal: processSignal }));
 
     const stop = () => {
+      diagnosticLog("codex.task", "process.stop", { pid: child.pid, aborted: signal.aborted });
       try { process.kill(-child.pid!, "SIGTERM"); } catch { child.kill(); }
     };
     signal.addEventListener("abort", stop, { once: true });
@@ -182,10 +229,17 @@ Goal: ${goal}`,
         status === "completed" &&
         !failedTool &&
         finalText.trimStart().startsWith("VERIFIED OUTCOME:");
-      return {
+      const result = {
         summary: finalText.trim() || `Codex turn ended with status ${status ?? "unknown"}.`,
         verified,
       };
+      diagnosticLog("codex.task", "execution.completed", {
+        status,
+        verified,
+        failedTool,
+        summary: result.summary,
+      });
+      return result;
     } finally {
       signal.removeEventListener("abort", stop);
       stop();
@@ -202,6 +256,12 @@ Goal: ${goal}`,
 export class CodexRecoveryObserver implements RecoveryObserver {
   async observe(task: TaskSnapshot): Promise<{ scopeStillMatches: boolean; detail?: string }> {
     const codex = process.env.CODEX_CLI_PATH || "/Applications/ChatGPT.app/Contents/Resources/codex";
+    diagnosticLog("codex.recovery", "observation.requested", {
+      taskId: task.id,
+      status: task.status,
+      goal: textMeta(task.goal),
+      binaryExists: existsSync(codex),
+    });
     if (!existsSync(codex)) return { scopeStillMatches: false, detail: "Codex is unavailable to re-observe the current state." };
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
@@ -264,9 +324,13 @@ export class CodexRecoveryObserver implements RecoveryObserver {
       });
       await turnDone;
       const detail = finalText.trim() || "Recovery observation returned no usable state.";
-      return { scopeStillMatches: detail.startsWith("STATE MATCHES:"), detail };
+      const result = { scopeStillMatches: detail.startsWith("STATE MATCHES:"), detail };
+      diagnosticLog("codex.recovery", "observation.completed", result);
+      return result;
     } catch (error) {
-      return { scopeStillMatches: false, detail: error instanceof Error ? error.message : "Recovery observation failed." };
+      const result = { scopeStillMatches: false, detail: error instanceof Error ? error.message : "Recovery observation failed." };
+      diagnosticLog("codex.recovery", "observation.failed", result);
+      return result;
     } finally {
       stop();
     }
