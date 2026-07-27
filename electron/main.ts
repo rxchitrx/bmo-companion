@@ -10,13 +10,23 @@ import {
 } from "./realtime-voice-client.js";
 import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
 import { CompanionMemoryService, JsonMemoryStore } from "./memory-service.js";
+import { ComputerUseHealth } from "./computer-use-health.js";
+import {
+  listAvailableModels,
+  ModelSettingsStore,
+  type ModelSettings,
+  type TaskKind,
+} from "./model-settings.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let runtime: TaskRuntime;
 let memory: CompanionMemoryService;
-const conversation = new CodexConversationClient();
-const realtimeVoice = new CodexRealtimeVoiceClient();
+let modelSettings: ModelSettingsStore;
+let conversation: CodexConversationClient;
+let realtimeVoice: CodexRealtimeVoiceClient;
+let modelCatalogPromise: ReturnType<typeof listAvailableModels> | null = null;
+const computerUseHealth = new ComputerUseHealth();
 
 function emitConversation(update: ConversationUpdate) {
   diagnosticLog("main", "conversation.update.emit", {
@@ -97,7 +107,7 @@ function createStage() {
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   diagnosticLog("main", "application.ready", {
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
@@ -128,11 +138,20 @@ app.whenReady().then(() => {
       callback(allowed);
     },
   );
+  modelSettings = new ModelSettingsStore(join(app.getPath("userData"), "model-settings.json"));
+  await modelSettings.load();
   memory = new CompanionMemoryService(new JsonMemoryStore(join(app.getPath("userData"), "companion-memory.json")));
+  conversation = new CodexConversationClient(
+    () => runtime.currentTask(),
+    () => modelSettings.selection("conversation"),
+  );
   runtime = new TaskRuntime(
-    new CodexTaskExecutor(),
+    new CodexTaskExecutor(computerUseHealth),
     new JsonlActivityLedger(join(app.getPath("userData"), "activity-ledger.jsonl")),
-    (task) => mainWindow?.webContents.send("task:update", task),
+    (task) => {
+      mainWindow?.webContents.send("task:update", task);
+      void realtimeVoice?.syncTask(task);
+    },
     undefined,
     new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
     new CodexRecoveryObserver(),
@@ -140,7 +159,17 @@ app.whenReady().then(() => {
     undefined,
     memory,
   );
-  void runtime.restore();
+  realtimeVoice = new CodexRealtimeVoiceClient(
+    (goal, kind) => {
+      const selection = modelSettings.selection(kind);
+      return runtime.create(goal, { kind, ...selection });
+    },
+    () => runtime.cancelActive(),
+    () => runtime.currentTask(),
+  );
+  void runtime.restore().then((task) => {
+    computerUseHealth.observeFailure(task?.summary);
+  });
   const reminderClock = setInterval(() => void runtime.sendDueReminders(), 30_000);
   reminderClock.unref();
   powerMonitor.on("lock-screen", () => {
@@ -179,6 +208,8 @@ ipcMain.handle("conversation:send", async (_event, rawText: string) => {
   }
 });
 
+ipcMain.handle("task:get-current", () => runtime.currentTask());
+
 ipcMain.handle("voice:realtime:start", async (_event, rawOfferSdp: string) => {
   const offerSdp = String(rawOfferSdp ?? "");
   if (!offerSdp.startsWith("v=0")) throw new Error("Invalid WebRTC SDP offer.");
@@ -207,9 +238,16 @@ ipcMain.handle("voice:realtime:stop", async () => {
   await realtimeVoice.stop("renderer requested stop");
 });
 
-ipcMain.handle("task:start", (_event, goal: string) => {
+ipcMain.handle("task:start", (_event, payload: { goal?: unknown; kind?: unknown }) => {
+  const goal = String(payload?.goal ?? "").trim();
+  const rawKind = String(payload?.kind ?? "general");
+  const kind = (["general", "coding", "computer", "browser"].includes(rawKind)
+    ? rawKind
+    : "general") as TaskKind;
+  if (!goal) throw new Error("Task goal cannot be empty.");
+  const selection = modelSettings.selection(kind);
   diagnosticLog("main", "ipc.task.start", { goal: textMeta(goal) });
-  return runtime.create(goal.trim());
+  return runtime.create(goal, { kind, ...selection });
 });
 ipcMain.handle("task:approve", (_event, id: string) => {
   diagnosticLog("main", "ipc.task.approve", { taskId: id });
@@ -231,9 +269,27 @@ ipcMain.handle("task:cancel", (_event, id: string) => {
   diagnosticLog("main", "ipc.task.cancel", { taskId: id });
   return runtime.cancel(id);
 });
-ipcMain.handle("memory:recall", (_event, question: string) => {
+ipcMain.handle("memory:recall", async (_event, question: string) => {
   diagnosticLog("main", "ipc.memory.recall", { text: textMeta(question) });
-  return memory.recall(question.trim());
+  const local = await memory.recall(question.trim());
+  if (local.references.length === 0) return local;
+  const selection = modelSettings.selection("memory");
+  const synthesis = await conversation.synthesizeMemory(
+    question.trim(),
+    local.answer,
+    selection,
+  );
+  return { ...local, answer: synthesis.text, usage: synthesis.usage };
+});
+ipcMain.handle("models:get-settings", () => modelSettings.get());
+ipcMain.handle("models:update-settings", (_event, settings: ModelSettings) =>
+  modelSettings.update(settings));
+ipcMain.handle("models:list", () => {
+  modelCatalogPromise ??= listAvailableModels().catch((error) => {
+    modelCatalogPromise = null;
+    throw error;
+  });
+  return modelCatalogPromise;
 });
 ipcMain.on("diagnostic:client", (_event, payload: unknown) => {
   diagnosticLog("renderer", "client.event", {

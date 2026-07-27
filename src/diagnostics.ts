@@ -30,7 +30,9 @@ function sanitize(value: unknown, key = "", depth = 0): unknown {
         .slice(0, 60)
         .map(([entryKey, entryValue]) => [
           entryKey,
-          SECRET_KEYS.test(entryKey) ? "[REDACTED]" : sanitize(entryValue, entryKey, depth + 1),
+          SECRET_KEYS.test(entryKey) && typeof entryValue !== "number"
+            ? "[REDACTED]"
+            : sanitize(entryValue, entryKey, depth + 1),
         ]),
     );
   }

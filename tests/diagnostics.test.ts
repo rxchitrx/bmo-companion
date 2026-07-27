@@ -21,10 +21,16 @@ test("diagnostic sanitizer removes secrets and converts conversational text to m
       message: "Assistant response",
       url: "https://example.com/?token=abc123&view=full",
     },
+    usage: {
+      inputTokens: 1200,
+      outputTokens: 300,
+      totalTokens: 1500,
+    },
   });
   const serialized = JSON.stringify(sanitized);
 
   assert.doesNotMatch(serialized, /top-secret|super-secret|abc123|Hello from|A private answer|Assistant response/);
   assert.match(serialized, /\[REDACTED\]/);
   assert.match(serialized, /"chars":19/);
+  assert.match(serialized, /"totalTokens":1500/);
 });

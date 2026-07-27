@@ -7,13 +7,17 @@ contextBridge.exposeInMainWorld("companion", {
   sendConversation: (text) => ipcRenderer.invoke("conversation:send", text),
   startRealtimeVoice: (offerSdp) => ipcRenderer.invoke("voice:realtime:start", offerSdp),
   stopRealtimeVoice: () => ipcRenderer.invoke("voice:realtime:stop"),
-  startTask: (goal) => ipcRenderer.invoke("task:start", goal),
+  getCurrentTask: () => ipcRenderer.invoke("task:get-current"),
+  startTask: (goal, kind) => ipcRenderer.invoke("task:start", { goal, kind }),
   approveTask: (taskId) => ipcRenderer.invoke("task:approve", taskId),
   extendTaskApproval: (taskId) => ipcRenderer.invoke("task:extend-approval", taskId),
   recoverTask: (taskId) => ipcRenderer.invoke("task:recover", taskId),
   denyTask: (taskId) => ipcRenderer.invoke("task:deny", taskId),
   cancelTask: (taskId) => ipcRenderer.invoke("task:cancel", taskId),
   recallMemory: (question) => ipcRenderer.invoke("memory:recall", question),
+  getModelSettings: () => ipcRenderer.invoke("models:get-settings"),
+  updateModelSettings: (settings) => ipcRenderer.invoke("models:update-settings", settings),
+  listModels: () => ipcRenderer.invoke("models:list"),
   logDiagnostic: (event) => ipcRenderer.send("diagnostic:client", event),
   onConversationUpdate: (listener) => {
     const handler = (_event, update) => listener(update);

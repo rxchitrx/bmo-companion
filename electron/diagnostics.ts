@@ -40,7 +40,7 @@ export function sanitizeDiagnostic(
         .slice(0, 60)
         .map(([entryKey, entryValue]) => [
           entryKey,
-          SECRET_KEYS.test(entryKey)
+          SECRET_KEYS.test(entryKey) && typeof entryValue !== "number"
             ? "[REDACTED]"
             : sanitizeDiagnostic(entryValue, entryKey, depth + 1),
         ]),

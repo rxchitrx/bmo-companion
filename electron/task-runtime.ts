@@ -12,6 +12,22 @@ export type TaskStatus =
   | "failed"
   | "cancelled";
 
+export interface TokenUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface AccountUsage {
+  planType?: string;
+  primaryUsedPercent?: number;
+  primaryResetsAt?: number;
+  secondaryUsedPercent?: number;
+  secondaryResetsAt?: number;
+}
+
 export interface TaskSnapshot {
   id: string;
   goal: string;
@@ -22,6 +38,11 @@ export interface TaskSnapshot {
   approvalExpiresAt?: string;
   recoveryRequired?: boolean;
   directiveId?: string;
+  usage?: TokenUsage;
+  accountUsage?: AccountUsage;
+  kind?: "general" | "coding" | "computer" | "browser";
+  model?: string;
+  effort?: string;
 }
 
 export interface StoredTask {
@@ -35,11 +56,24 @@ export interface StoredTask {
 export interface ExecutionResult {
   summary: string;
   verified: boolean;
+  usage?: TokenUsage;
+  accountUsage?: AccountUsage;
   artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
 }
 
 export interface TaskExecutor {
-  execute(goal: string, signal: AbortSignal, progress: (message: string) => void): Promise<ExecutionResult>;
+  execute(
+    goal: string,
+    signal: AbortSignal,
+    progress: (message: string) => void,
+    usage?: (usage: TokenUsage) => void,
+    accountUsage?: (usage: AccountUsage) => void,
+    execution?: {
+      model: string;
+      effort: string;
+      kind?: "general" | "coding" | "computer" | "browser";
+    },
+  ): Promise<ExecutionResult>;
 }
 
 export interface ActivityLedger { append(event: Record<string, unknown>): Promise<void>; }
@@ -131,6 +165,10 @@ export class TaskRuntime {
     private readonly memory?: CompletedTaskMemory,
   ) {}
 
+  currentTask(): TaskSnapshot | null {
+    return this.current ? this.snapshot() : null;
+  }
+
   /** Restores context only. Call recover() before any external work can continue. */
   async restore(): Promise<TaskSnapshot | null> {
     diagnosticLog("task.runtime", "restore.requested");
@@ -159,10 +197,21 @@ export class TaskRuntime {
     return this.snapshot();
   }
 
-  async create(goal: string, options: { directiveId?: string } = {}): Promise<TaskSnapshot> {
+  async create(
+    goal: string,
+    options: {
+      directiveId?: string;
+      kind?: "general" | "coding" | "computer" | "browser";
+      model?: string;
+      effort?: string;
+    } = {},
+  ): Promise<TaskSnapshot> {
     diagnosticLog("task.runtime", "create.requested", {
       goal: textMeta(goal),
       directiveId: options.directiveId,
+      kind: options.kind,
+      model: options.model,
+      effort: options.effort,
       currentTaskId: this.current?.task.id,
       currentStatus: this.current?.task.status,
     });
@@ -174,7 +223,15 @@ export class TaskRuntime {
       throw new Error("A Mac-control Task is already active.");
     }
     const task: TaskSnapshot = {
-      id: randomUUID(), goal, status: "waiting_approval", state: "approval", progress: ["Task created. Waiting for scoped approval."], directiveId: options.directiveId,
+      id: randomUUID(),
+      goal,
+      status: "waiting_approval",
+      state: "approval",
+      progress: ["Task created. Waiting for scoped approval."],
+      directiveId: options.directiveId,
+      kind: options.kind,
+      model: options.model,
+      effort: options.effort,
     };
     this.current = { task, reminderIndex: 0, nextReminderAt: this.afterMinutes(REMINDER_MINUTES[0]), executionSurfaceAvailable: true };
     await this.persist("task.created");
@@ -221,13 +278,13 @@ export class TaskRuntime {
       question: textMeta(question),
     });
     if (!ACTIVE.has(stored.task.status)) return;
-    this.abortController?.abort();
     stored.task.status = "needs_decision";
     stored.task.state = "approval";
     stored.task.summary = question;
     stored.task.progress.push(`Needs Decision: ${question}`);
     stored.reminderIndex = 0;
     stored.nextReminderAt = this.afterMinutes(REMINDER_MINUTES[0]);
+    this.abortController?.abort();
     await this.persist("task.needs_decision");
     this.publish();
   }
@@ -281,12 +338,12 @@ export class TaskRuntime {
     if (!this.current || !ACTIVE.has(this.current.task.status)) return;
     this.current.executionSurfaceAvailable = available;
     if (!available) {
-      this.abortController?.abort();
       this.current.task.status = "suspended";
       this.current.task.state = "approval";
       this.current.task.recoveryRequired = true;
       this.current.task.summary = "Mac-control is suspended while this Mac is locked or unavailable.";
       this.current.task.progress.push("Mac-control surface unavailable. Task suspended without replaying actions.");
+      this.abortController?.abort();
       await this.persist("task.suspended", { reason: "execution_surface_unavailable" });
       this.publish();
       return;
@@ -332,6 +389,15 @@ export class TaskRuntime {
     diagnosticLog("task.runtime", "cancel.requested", { taskId: id });
     await this.cancelWithReason(id, "owner_stop", "Task stopped. Completed actions were not undone.");
   }
+  async cancelActive(): Promise<boolean> {
+    if (!this.current || !ACTIVE.has(this.current.task.status)) return false;
+    await this.cancelWithReason(
+      this.current.task.id,
+      "owner_stop",
+      "Task stopped. Completed actions were not undone.",
+    );
+    return true;
+  }
 
   private async cancelWithReason(id: string, reason: string, summary: string) {
     const stored = this.requireTask(id);
@@ -343,8 +409,8 @@ export class TaskRuntime {
       });
       return;
     }
-    this.abortController?.abort();
     stored.task.status = "cancelled"; stored.task.state = "idle"; stored.task.summary = summary; stored.task.progress.push(summary);
+    this.abortController?.abort();
     await this.persist("task.cancelled", { reason }); this.publish();
   }
 
@@ -363,15 +429,46 @@ export class TaskRuntime {
     this.abortController = new AbortController();
     await this.persist("task.running");
     try {
-      const result = await this.executor.execute(stored.task.goal, this.abortController.signal, (message) => {
-        if (this.current !== stored || stored.task.status !== "running") return;
-        diagnosticLog("task.runtime", "execution.progress", {
-          taskId: stored.task.id,
-          message,
-        });
-        stored.task.state = "working"; stored.task.progress.push(message);
-        void this.persist("task.progress", { message }); this.publish();
-      });
+      const result = await this.executor.execute(
+        stored.task.goal,
+        this.abortController.signal,
+        (message) => {
+          if (this.current !== stored || stored.task.status !== "running") return;
+          diagnosticLog("task.runtime", "execution.progress", {
+            taskId: stored.task.id,
+            message,
+          });
+          stored.task.state = "working"; stored.task.progress.push(message);
+          void this.persist("task.progress", { message }); this.publish();
+        },
+        (usage) => {
+          if (this.current !== stored || stored.task.status !== "running") return;
+          stored.task.usage = usage;
+          diagnosticLog("task.runtime", "execution.usage", {
+            taskId: stored.task.id,
+            usage,
+          });
+          void this.store.save(stored);
+          this.publish();
+        },
+        (accountUsage) => {
+          if (this.current !== stored || stored.task.status !== "running") return;
+          stored.task.accountUsage = accountUsage;
+          diagnosticLog("task.runtime", "execution.account_usage", {
+            taskId: stored.task.id,
+            accountUsage,
+          });
+          void this.store.save(stored);
+          this.publish();
+        },
+        stored.task.model && stored.task.effort
+          ? {
+              model: stored.task.model,
+              effort: stored.task.effort,
+              kind: stored.task.kind,
+            }
+          : undefined,
+      );
       if (this.current !== stored || stored.task.status !== "running") return;
       diagnosticLog("task.runtime", "execution.result", {
         taskId: stored.task.id,
@@ -380,9 +477,15 @@ export class TaskRuntime {
         artifactCount: result.artifacts?.length ?? 0,
       });
       stored.task.summary = result.summary;
+      if (result.usage) stored.task.usage = result.usage;
+      if (result.accountUsage) stored.task.accountUsage = result.accountUsage;
       if (result.verified) {
         stored.task.status = "completed"; stored.task.state = "speaking"; stored.task.progress.push("Verified Outcome recorded.");
-        await this.persist("task.completed", { verified: true });
+        await this.persist("task.completed", {
+          verified: true,
+          usage: stored.task.usage,
+          accountUsage: stored.task.accountUsage,
+        });
         try {
           await this.memory?.rememberCompletedTask({
             taskId: stored.task.id,
@@ -395,7 +498,17 @@ export class TaskRuntime {
           stored.task.progress.push("Task completed, but its memory candidate could not be saved.");
           await this.record("memory.write_failed", stored.task, { error: message });
         }
-      } else await this.fail(stored, "Codex finished without sufficient verification.", { verified: false });
+      } else {
+        await this.fail(
+          stored,
+          result.summary || "Codex finished without sufficient verification.",
+          {
+            verified: false,
+            usage: stored.task.usage,
+            accountUsage: stored.task.accountUsage,
+          },
+        );
+      }
     } catch (error) {
       diagnosticLog("task.runtime", "execution.error", {
         taskId: stored.task.id,
@@ -416,6 +529,10 @@ export class TaskRuntime {
   }
 
   private async fail(stored: StoredTask, summary: string, extra: Record<string, unknown> = {}) {
+    if (/computer use session was stopped|readline was closed|timed out waiting for tools\/call/i.test(summary)) {
+      summary =
+        "UNVERIFIED: Computer Use lost its session before it could verify the result. The Mac may already have changed. BMO will not retry automatically.";
+    }
     diagnosticLog("task.runtime", "failed", {
       taskId: stored.task.id,
       summary,
@@ -449,10 +566,10 @@ export class TaskRuntime {
       taskId: stored.task.id,
       approvalExpiresAt: stored.task.approvalExpiresAt,
     });
-    this.abortController?.abort();
     stored.task.status = "needs_decision"; stored.task.state = "approval"; stored.task.recoveryRequired = true;
     stored.task.summary = "Task Approval expired after two hours. Direct confirmation is required to continue.";
     stored.task.progress.push(stored.task.summary); stored.nextReminderAt = undefined;
+    this.abortController?.abort();
     await this.persist("task.approval_expired"); this.publish();
   }
   private afterMinutes(minutes: number) { return new Date(this.now().getTime() + minutes * 60_000).toISOString(); }

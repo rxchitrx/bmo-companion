@@ -47,6 +47,76 @@ test("one approval drives a general Task to Verified Outcome", async () => {
   assert.equal(ledger.events.at(-1)?.verified, true);
 });
 
+test("a Task freezes its selected capability model through approval and execution", async () => {
+  let receivedModel: { model: string; effort: string } | undefined;
+  const runtime = new TaskRuntime(
+    {
+      async execute(_goal, _signal, _progress, _usage, _accountUsage, model) {
+        receivedModel = model;
+        return { summary: "Verified with the selected worker.", verified: true };
+      },
+    },
+    new MemoryLedger(),
+    () => {},
+  );
+  const task = await runtime.create("Fix the repository", {
+    kind: "coding",
+    model: "gpt-5.6-sol",
+    effort: "high",
+  });
+  assert.equal(task.kind, "coding");
+  assert.equal(task.model, "gpt-5.6-sol");
+  await runtime.approve(task.id);
+  assert.deepEqual(receivedModel, {
+    model: "gpt-5.6-sol",
+    effort: "high",
+    kind: "coding",
+  });
+});
+
+test("task usage is published live and persisted with the verified outcome", async () => {
+  const ledger = new MemoryLedger();
+  const updates: StoredTask["task"][] = [];
+  const executor: TaskExecutor = {
+    async execute(_goal, _signal, _progress, usage) {
+      usage?.({
+        inputTokens: 900,
+        cachedInputTokens: 600,
+        outputTokens: 100,
+        reasoningOutputTokens: 30,
+        totalTokens: 1000,
+      });
+      return {
+        summary: "Verified.",
+        verified: true,
+        usage: {
+          inputTokens: 900,
+          cachedInputTokens: 600,
+          outputTokens: 100,
+          reasoningOutputTokens: 30,
+          totalTokens: 1000,
+        },
+      };
+    },
+  };
+  const runtime = new TaskRuntime(
+    executor,
+    ledger,
+    (task) => updates.push(task),
+  );
+  const task = await runtime.create("Track this task");
+  await runtime.approve(task.id);
+
+  assert.equal(updates.some((update) => update.usage?.totalTokens === 1000), true);
+  assert.deepEqual(ledger.events.at(-1)?.usage, {
+    inputTokens: 900,
+    cachedInputTokens: 600,
+    outputTokens: 100,
+    reasoningOutputTokens: 30,
+    totalTokens: 1000,
+  });
+});
+
 test("an unverified attempt never becomes completed", async () => {
   const ledger = new MemoryLedger();
   let lastStatus = "";
@@ -63,6 +133,39 @@ test("an unverified attempt never becomes completed", async () => {
   assert.equal(ledger.events.at(-1)?.type, "task.failed");
 });
 
+test("a stopped Computer Use session is reported as unverified without automatic retry", async () => {
+  const ledger = new MemoryLedger();
+  const store = new MemoryStore();
+  let executions = 0;
+  const runtime = new TaskRuntime(
+    {
+      async execute() {
+        executions += 1;
+        return {
+          summary: "The Computer Use session was stopped before Safari could be verified.",
+          verified: false,
+        };
+      },
+    },
+    ledger,
+    () => {},
+    undefined,
+    store,
+  );
+  const task = await runtime.create("Open Safari", {
+    kind: "computer",
+    model: "gpt-5.6-luna",
+    effort: "high",
+  });
+
+  await runtime.approve(task.id);
+
+  assert.equal(executions, 1);
+  assert.equal(store.value?.task.status, "failed");
+  assert.match(store.value?.task.summary ?? "", /Mac may already have changed/);
+  assert.match(store.value?.task.summary ?? "", /will not retry automatically/);
+});
+
 test("denial leaves the Mac unchanged and records cancellation", async () => {
   const ledger = new MemoryLedger();
   let executed = false;
@@ -75,6 +178,47 @@ test("denial leaves the Mac unchanged and records cancellation", async () => {
 
   assert.equal(executed, false);
   assert.equal(ledger.events.at(-1)?.type, "task.cancelled");
+});
+
+test("owner Stop revokes authority before a worker can publish late progress or completion", async () => {
+  const ledger = new MemoryLedger();
+  const updates: Array<{ status: string; progress: string[] }> = [];
+  let workerStarted!: () => void;
+  const started = new Promise<void>((resolve) => { workerStarted = resolve; });
+  const executor: TaskExecutor = {
+    execute: async (_goal, signal, progress) =>
+      new Promise((resolve) => {
+        workerStarted();
+        signal.addEventListener("abort", () => {
+          progress("Late progress after authority revocation.");
+          resolve({ summary: "Late verified result.", verified: true });
+        }, { once: true });
+      }),
+  };
+  const runtime = new TaskRuntime(
+    executor,
+    ledger,
+    (task) => updates.push({ status: task.status, progress: [...task.progress] }),
+  );
+  const task = await runtime.create("Keep operating until stopped");
+  const approval = runtime.approve(task.id);
+  await started;
+
+  assert.equal(await runtime.cancelActive(), true);
+  await approval;
+
+  assert.equal(updates.at(-1)?.status, "cancelled");
+  assert.equal(
+    updates.some((update) =>
+      update.progress.includes("Late progress after authority revocation.")),
+    false,
+  );
+  assert.equal(
+    ledger.events.some((event) => event.type === "task.completed"),
+    false,
+  );
+  assert.equal(ledger.events.at(-1)?.reason, "owner_stop");
+  assert.equal(await runtime.cancelActive(), false);
 });
 
 test("pending approvals remind at 2, 5, and 10 minutes, then use the attention cadence", async () => {

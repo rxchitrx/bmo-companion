@@ -70,6 +70,68 @@ button { cursor: pointer; }
   box-shadow: 0 0 0 0.35rem oklch(88% 0.06 164);
 }
 .task-id { font-variant-numeric: tabular-nums; opacity: 0.64; }
+.task-model {
+  max-width: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.68;
+}
+
+.usage-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.07em;
+}
+.usage-pill {
+  position: relative;
+  padding: 0.22rem 0.42rem;
+  border: 0.08rem solid color-mix(in oklch, var(--ink) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--mint-light) 74%, transparent);
+  font-size: 0.65rem;
+  white-space: nowrap;
+  outline: none;
+}
+.usage-pill::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.65rem);
+  left: 50%;
+  width: max-content;
+  max-width: min(34rem, 72vw);
+  padding: 0.65rem 0.8rem;
+  border: 0.1rem solid var(--ink);
+  border-radius: 0.55rem;
+  background: oklch(95% 0.025 164);
+  box-shadow: 0.28rem 0.28rem 0 var(--ink);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -0.25rem);
+  transition:
+    opacity 120ms ease,
+    transform 120ms var(--ease-out);
+}
+.usage-pill:hover::after,
+.usage-pill:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.usage-pill:focus-visible {
+  box-shadow: 0 0 0 0.18rem color-mix(in oklch, var(--ink) 24%, transparent);
+}
 
 .voice-controls {
   margin-left: auto;
@@ -79,6 +141,109 @@ button { cursor: pointer; }
   letter-spacing: normal;
   text-transform: none;
 }
+
+.button-models {
+  min-height: 2.45rem;
+  padding: 0 0.7rem;
+  border: 0.1rem solid var(--ink);
+  background: color-mix(in oklch, var(--mint-light) 78%, transparent);
+  color: var(--ink);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.model-panel {
+  position: absolute;
+  z-index: 20;
+  top: clamp(4.5rem, 9vh, 7rem);
+  right: clamp(1.25rem, 3vw, 3.5rem);
+  width: min(47rem, calc(100vw - 2.5rem));
+  max-height: calc(100vh - 8rem);
+  overflow: auto;
+  padding: 1.15rem;
+  border: 0.14rem solid var(--ink);
+  background: oklch(92% 0.045 164 / 0.98);
+  box-shadow: 0.5rem 0.55rem 0 var(--deep);
+}
+
+.model-panel__header,
+.model-panel__footer,
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.model-panel__header {
+  justify-content: space-between;
+  padding-bottom: 0.85rem;
+  border-bottom: 0.1rem solid color-mix(in oklch, var(--ink) 35%, transparent);
+}
+
+.model-panel__header small,
+.model-panel__header strong,
+.model-row small,
+.model-row strong {
+  display: block;
+}
+
+.model-panel__header small {
+  margin-bottom: 0.18rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.model-panel__header strong { font-size: 1.15rem; }
+
+.model-row {
+  min-height: 3.85rem;
+  padding: 0.65rem 0;
+  border-bottom: 0.08rem solid color-mix(in oklch, var(--ink) 18%, transparent);
+}
+
+.model-row > div {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.model-row small {
+  margin-top: 0.15rem;
+  opacity: 0.64;
+  font-size: 0.72rem;
+}
+
+.model-row select,
+.task-kind-select {
+  min-height: 2.2rem;
+  border: 0.1rem solid var(--ink);
+  border-radius: 0;
+  background: oklch(97% 0.018 164);
+  color: var(--ink);
+  padding: 0 1.8rem 0 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.model-row select:first-of-type { width: 12rem; }
+.model-row select:last-of-type { width: 6.5rem; text-transform: capitalize; }
+
+.model-row--managed > span {
+  padding: 0.5rem 0.65rem;
+  border: 0.08rem solid color-mix(in oklch, var(--ink) 42%, transparent);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.model-panel__footer {
+  justify-content: space-between;
+  padding-top: 0.9rem;
+}
+
+.model-panel__footer small { max-width: 28rem; opacity: 0.66; }
+.model-panel__error { color: oklch(42% 0.17 28); font-weight: 750; }
+.task-kind-select { min-height: 2rem; }
 
 .microphone-control {
   min-width: min(28rem, 38vw);
@@ -125,6 +290,19 @@ button { cursor: pointer; }
 .button-voice:focus-visible {
   outline: 0.18rem solid oklch(44% 0.13 252);
   outline-offset: -0.18rem;
+}
+
+.button-models:focus-visible,
+.model-row select:focus-visible,
+.task-kind-select:focus-visible {
+  outline: 0.18rem solid oklch(44% 0.13 252);
+  outline-offset: -0.18rem;
+}
+
+@media (max-width: 1180px) {
+  .status-line { width: 96vw; gap: 0.4rem; }
+  .usage-pill { padding-inline: 0.28rem; font-size: 0.58rem; }
+  .microphone-control { min-width: 24rem; }
 }
 
 .microphone-icon {

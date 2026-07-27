@@ -2,6 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import { taskSnapshotToRealtimeContext } from "./task-context.js";
+import type { TaskSnapshot } from "./task-runtime.js";
 
 export interface JsonRpcMessage {
   id?: number;
@@ -9,6 +11,35 @@ export interface JsonRpcMessage {
   params?: Record<string, any>;
   result?: any;
   error?: { code?: number; message?: string };
+}
+
+export type AppServerRequestReply =
+  | { result: unknown }
+  | { error: { code: number; message: string } };
+
+export type AppServerRequestHandler = (
+  message: JsonRpcMessage,
+) => AppServerRequestReply | Promise<AppServerRequestReply>;
+
+export function createConversationOnlyThreadParams(cwd: string) {
+  return {
+    cwd,
+    ephemeral: true,
+    approvalPolicy: "never",
+    sandbox: "read-only",
+    environments: [],
+    selectedCapabilityRoots: [],
+    dynamicTools: [],
+    config: {
+      apps: {
+        _default: {
+          enabled: false,
+          destructive_enabled: false,
+          open_world_enabled: false,
+        },
+      },
+    },
+  };
 }
 
 export type ConversationStatus =
@@ -50,7 +81,10 @@ export class AppServerConnection {
   private waiters = new Set<NotificationWaiter>();
   private listeners = new Set<(message: JsonRpcMessage) => void>();
 
-  constructor(private readonly name: string) {}
+  constructor(
+    private readonly name: string,
+    private readonly serverRequestHandler?: AppServerRequestHandler,
+  ) {}
 
   get running() { return this.child != null; }
 
@@ -191,14 +225,7 @@ export class AppServerConnection {
 
   private handle(message: JsonRpcMessage) {
     if (message.id != null && message.method) {
-      diagnosticLog(this.name, "rpc.server_request.denied", {
-        id: message.id,
-        method: message.method,
-      });
-      this.send({
-        id: message.id,
-        error: { code: -32601, message: "Conversation transport cannot approve actions." },
-      });
+      void this.handleServerRequest(message);
       return;
     }
     if (message.id != null) {
@@ -257,6 +284,41 @@ export class AppServerConnection {
     }
   }
 
+  private async handleServerRequest(message: JsonRpcMessage) {
+    const id = message.id!;
+    const method = message.method!;
+    if (!this.serverRequestHandler) {
+      diagnosticLog(this.name, "rpc.server_request.denied", { id, method });
+      this.send({
+        id,
+        error: { code: -32601, message: "This client does not expose tools." },
+      });
+      return;
+    }
+    try {
+      diagnosticLog(this.name, "rpc.server_request.received", {
+        id,
+        method,
+        paramKeys: Object.keys(message.params ?? {}),
+      });
+      const reply = await this.serverRequestHandler(message);
+      this.send({ id, ...reply });
+      diagnosticLog(this.name, "rpc.server_request.resolved", {
+        id,
+        method,
+        accepted: "result" in reply,
+      });
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : String(error);
+      diagnosticLog(this.name, "rpc.server_request.failed", {
+        id,
+        method,
+        error: failure,
+      });
+      this.send({ id, error: { code: -32000, message: failure } });
+    }
+  }
+
   private handleExit(code: number | null, signal: NodeJS.Signals | null, error?: Error) {
     if (!this.child && !error) return;
     this.child = null;
@@ -283,6 +345,12 @@ export class CodexConversationClient {
   private fallback: AppServerConnection | null = null;
   private fallbackThreadId: string | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly readCurrentTask: () => TaskSnapshot | null = () => null,
+    private readonly readConversationModel: () => { model: string; effort: string } =
+      () => ({ model: "gpt-5.6-terra", effort: "low" }),
+  ) {}
 
   send(
     text: string,
@@ -318,12 +386,10 @@ export class CodexConversationClient {
     const connection = new AppServerConnection("conversation.fallback");
     this.fallback = connection;
     await connection.start();
-    const thread = await connection.request("thread/start", {
-      cwd: process.cwd(),
-      ephemeral: true,
-      approvalPolicy: "never",
-      sandbox: "read-only",
-    });
+    const thread = await connection.request(
+      "thread/start",
+      createConversationOnlyThreadParams(process.cwd()),
+    );
     this.fallbackThreadId = thread.thread.id;
     diagnosticLog("conversation", "fallback.ready", {
       requestId,
@@ -357,11 +423,16 @@ export class CodexConversationClient {
       });
       try {
         emit({ requestId, status: "sending", transport: "codex-turn" });
+        const currentTask = this.readCurrentTask();
+        const taskContext = currentTask
+          ? taskSnapshotToRealtimeContext(currentTask)
+          : "[AUTHORITATIVE TASK STATE]\nNo Task exists.";
         await connection.request("turn/start", {
           threadId: this.fallbackThreadId,
+          ...this.readConversationModel(),
           input: [{
             type: "text",
-            text: `Respond as BMO, Rachit's warm and concise personal companion. This is conversation only: do not use tools, inspect files, or operate the computer. If the message needs an external action, explain that it should be started as an approved Task.\n\nUser message: ${text}`,
+            text: `Respond as BMO, Rachit's warm and concise personal companion. This is conversation only: do not use tools, inspect files, or operate the computer. The Task State below is authoritative; use it instead of guessing about approval, progress, or completion. If the message needs a new external action, explain that it should be started as a Task.\n\n${taskContext}\n\nUser message: ${text}`,
           }],
         });
         const outcome = await connection.waitFor(
@@ -421,5 +492,79 @@ export class CodexConversationClient {
     this.fallback?.stop(reason);
     this.fallback = null;
     this.fallbackThreadId = null;
+  }
+
+  async synthesizeMemory(
+    question: string,
+    retrievedAnswer: string,
+    selection: { model: string; effort: string },
+  ): Promise<{ text: string; usage?: {
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+    totalTokens: number;
+  } }> {
+    const connection = new AppServerConnection("memory.synthesis");
+    let text = "";
+    let usage: {
+      inputTokens: number;
+      cachedInputTokens: number;
+      outputTokens: number;
+      reasoningOutputTokens: number;
+      totalTokens: number;
+    } | undefined;
+    try {
+      await connection.start();
+      const thread = await connection.request(
+        "thread/start",
+        {
+          ...createConversationOnlyThreadParams(process.cwd()),
+          model: selection.model,
+        },
+      );
+      const remove = connection.onNotification((message) => {
+        if (message.method === "item/agentMessage/delta") {
+          text += String(message.params?.delta ?? "");
+        } else if (message.method === "item/completed") {
+          const item = message.params?.item;
+          if (item?.type === "agentMessage" && item.text) text = String(item.text);
+        } else if (message.method === "thread/tokenUsage/updated") {
+          const total = message.params?.tokenUsage?.total ?? {};
+          if (Number(total.totalTokens) > 0) {
+            usage = {
+              inputTokens: Number(total.inputTokens ?? 0),
+              cachedInputTokens: Number(total.cachedInputTokens ?? 0),
+              outputTokens: Number(total.outputTokens ?? 0),
+              reasoningOutputTokens: Number(total.reasoningOutputTokens ?? 0),
+              totalTokens: Number(total.totalTokens),
+            };
+          }
+        }
+      });
+      try {
+        await connection.request("turn/start", {
+          threadId: thread.thread.id,
+          model: selection.model,
+          effort: selection.effort,
+          input: [{
+            type: "text",
+            text: `Answer the user's memory question using only BMO's retrieved local memory below. Be concise. Do not use tools or infer facts that are not present. If the retrieved memory does not answer the question, say so.\n\nQuestion: ${question}\n\nRetrieved memory:\n${retrievedAnswer}`,
+          }],
+        });
+        const outcome = await connection.waitFor(
+          (message) => message.method === "turn/completed",
+          "memory synthesis turn",
+        );
+        if (outcome.params?.turn?.status !== "completed" || !text.trim()) {
+          throw new Error("Memory synthesis did not complete.");
+        }
+      } finally {
+        remove();
+      }
+      return { text: text.trim(), usage };
+    } finally {
+      connection.stop("memory synthesis complete");
+    }
   }
 }

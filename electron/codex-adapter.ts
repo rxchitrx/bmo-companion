@@ -1,7 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { ExecutionResult, RecoveryObserver, TaskExecutor, TaskSnapshot } from "./task-runtime.js";
+import type {
+  AccountUsage,
+  ExecutionResult,
+  RecoveryObserver,
+  TaskExecutor,
+  TaskSnapshot,
+  TokenUsage,
+} from "./task-runtime.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import { ComputerUseHealth } from "./computer-use-health.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -11,13 +19,183 @@ interface JsonRpcMessage {
   error?: { code?: number; message?: string };
 }
 
+export function normalizeTaskTokenUsage(value: unknown): TokenUsage | undefined {
+  const candidate = (
+    value &&
+    typeof value === "object" &&
+    "total" in value &&
+    (value as { total?: unknown }).total
+  ) || value;
+  if (!candidate || typeof candidate !== "object") return undefined;
+  const usage = candidate as Record<string, unknown>;
+  const number = (key: string) =>
+    typeof usage[key] === "number" && Number.isFinite(usage[key])
+      ? Math.max(0, Math.round(usage[key] as number))
+      : 0;
+  const normalized: TokenUsage = {
+    inputTokens: number("inputTokens"),
+    cachedInputTokens: number("cachedInputTokens"),
+    outputTokens: number("outputTokens"),
+    reasoningOutputTokens: number("reasoningOutputTokens"),
+    totalTokens: number("totalTokens"),
+  };
+  return normalized.totalTokens > 0 ? normalized : undefined;
+}
+
+export function normalizeAccountUsage(value: unknown): AccountUsage | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const limits = value as Record<string, any>;
+  const percentage = (window: unknown) => {
+    const used = (window as { usedPercent?: unknown } | null)?.usedPercent;
+    return typeof used === "number" && Number.isFinite(used)
+      ? Math.min(100, Math.max(0, Math.round(used)))
+      : undefined;
+  };
+  const reset = (window: unknown) => {
+    const resetsAt = (window as { resetsAt?: unknown } | null)?.resetsAt;
+    return typeof resetsAt === "number" && Number.isFinite(resetsAt)
+      ? Math.round(resetsAt)
+      : undefined;
+  };
+  const normalized: AccountUsage = {
+    planType:
+      typeof limits.planType === "string" ? limits.planType : undefined,
+    primaryUsedPercent: percentage(limits.primary),
+    primaryResetsAt: reset(limits.primary),
+    secondaryUsedPercent: percentage(limits.secondary),
+    secondaryResetsAt: reset(limits.secondary),
+  };
+  return Object.values(normalized).some((entry) => entry !== undefined)
+    ? normalized
+    : undefined;
+}
+
+function itemDiagnostic(item: Record<string, any> | undefined) {
+  if (!item) return undefined;
+  const command = Array.isArray(item.command)
+    ? item.command.join(" ")
+    : typeof item.command === "string"
+      ? item.command
+      : "";
+  return {
+    id: item.id,
+    type: item.type,
+    status: item.status,
+    server: item.server,
+    tool: item.tool ?? item.name,
+    command: command ? textMeta(command) : undefined,
+    exitCode: item.exitCode,
+    errorCode: item.error?.code,
+    errorMessage: item.error?.message,
+  };
+}
+
+export function createTaskThreadParams(cwd: string) {
+  return {
+    cwd,
+    ephemeral: true,
+    approvalPolicy: {
+      granular: {
+        mcp_elicitations: true,
+        request_permissions: true,
+        rules: true,
+        sandbox_approval: true,
+        skill_approval: true,
+      },
+    },
+    approvalsReviewer: "user",
+    sandbox: "workspace-write",
+    environments: [],
+    selectedCapabilityRoots: [],
+    config: {
+      apps: {
+        _default: {
+          enabled: false,
+          destructive_enabled: false,
+          open_world_enabled: false,
+        },
+      },
+    },
+  };
+}
+
+export function taskServerRequestReply(
+  method: string | undefined,
+  params: Record<string, any>,
+  authorityActive: boolean,
+): { result?: unknown; error?: { code: number; message: string } } {
+  if (!authorityActive) {
+    if (
+      method === "item/commandExecution/requestApproval" ||
+      method === "item/fileChange/requestApproval"
+    ) {
+      return { result: { decision: "cancel" } };
+    }
+    if (method === "mcpServer/elicitation/request") {
+      return { result: { action: "decline", content: null } };
+    }
+    if (method === "item/permissions/requestApproval") {
+      return { result: { scope: "turn", permissions: {} } };
+    }
+    return {
+      error: { code: -32001, message: "Task authority has been revoked." },
+    };
+  }
+
+  if (method === "item/permissions/requestApproval") {
+    return {
+      result: { scope: "turn", permissions: params.permissions ?? {} },
+    };
+  }
+  if (
+    method === "item/commandExecution/requestApproval" ||
+    method === "item/fileChange/requestApproval"
+  ) {
+    return { result: { decision: "accept" } };
+  }
+  if (method === "mcpServer/elicitation/request") {
+    if (params.mode === "url") {
+      return { result: { action: "decline", content: null } };
+    }
+    const schema = params.requestedSchema as {
+      properties?: Record<string, any>;
+    } | undefined;
+    const content: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(schema?.properties ?? {})) {
+      if (field.const !== undefined) content[key] = field.const;
+      else if (field.default !== undefined) content[key] = field.default;
+      else if (Array.isArray(field.enum) && field.enum.length) {
+        content[key] = field.enum[0];
+      } else if (field.type === "boolean") content[key] = true;
+    }
+    const isToolApproval =
+      params._meta?.codex_approval_kind === "mcp_tool_call";
+    return {
+      result:
+        isToolApproval && Object.keys(content).length === 0
+          ? { action: "accept", content: {}, _meta: { persist: "session" } }
+          : { action: "accept", content },
+    };
+  }
+  return { error: { code: -32601, message: "Unsupported request" } };
+}
+
 export class CodexTaskExecutor implements TaskExecutor {
   private child: ChildProcessWithoutNullStreams | null = null;
+
+  constructor(private readonly computerUseHealth = new ComputerUseHealth()) {}
 
   async execute(
     goal: string,
     signal: AbortSignal,
     progress: (message: string) => void,
+    usage?: (usage: TokenUsage) => void,
+    accountUsage?: (usage: AccountUsage) => void,
+    execution?: {
+      model: string;
+      effort: string;
+      kind?: "general" | "coding" | "computer" | "browser";
+    },
   ): Promise<ExecutionResult> {
     const codex =
       process.env.CODEX_CLI_PATH ||
@@ -26,7 +204,9 @@ export class CodexTaskExecutor implements TaskExecutor {
       goal: textMeta(goal),
       binaryExists: existsSync(codex),
       aborted: signal.aborted,
+      execution,
     });
+    await this.computerUseHealth.prepare(execution?.kind, progress);
     if (!existsSync(codex)) throw new Error(`Codex executable not found: ${codex}`);
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
@@ -44,12 +224,23 @@ export class CodexTaskExecutor implements TaskExecutor {
     let buffer = "";
     let finalText = "";
     let failedTool = false;
+    let latestUsage: TokenUsage | undefined;
+    let latestAccountUsage: AccountUsage | undefined;
+    let authorityRevoked = signal.aborted;
+    let threadId: string | null = null;
+    let turnId: string | null = null;
+    let terminationStarted = false;
+    const terminationTimers: NodeJS.Timeout[] = [];
     const pending = new Map<number, {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
     }>();
     let resolveTurn: ((value: any) => void) | undefined;
-    const turnDone = new Promise<any>((resolve) => { resolveTurn = resolve; });
+    let rejectTurn: ((error: Error) => void) | undefined;
+    const turnDone = new Promise<any>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
 
     const send = (message: JsonRpcMessage) => {
       diagnosticLog("codex.task", "rpc.send", {
@@ -69,42 +260,30 @@ export class CodexTaskExecutor implements TaskExecutor {
 
     const acceptServerRequest = (message: JsonRpcMessage) => {
       const params = message.params ?? {};
+      const authorityActive = !authorityRevoked && !signal.aborted;
       diagnosticLog("codex.task", "rpc.server_request", {
         id: message.id,
         method: message.method,
         paramKeys: Object.keys(params),
+        authorityActive,
       });
-      if (message.method === "item/permissions/requestApproval") {
-        send({ id: message.id, result: { scope: "turn", permissions: params.permissions ?? {} } });
-      } else if (
-        message.method === "item/commandExecution/requestApproval" ||
-        message.method === "item/fileChange/requestApproval"
-      ) {
-        send({ id: message.id, result: { decision: "accept" } });
-      } else if (message.method === "mcpServer/elicitation/request") {
-        if (params.mode === "url") {
-          send({ id: message.id, result: { action: "decline", content: null } });
-          progress("This task needs a separate sign-in or connection decision.");
-          return;
-        }
-        const schema = params.requestedSchema as { properties?: Record<string, any> } | undefined;
-        const content: Record<string, unknown> = {};
-        for (const [key, field] of Object.entries(schema?.properties ?? {})) {
-          if (field.const !== undefined) content[key] = field.const;
-          else if (field.default !== undefined) content[key] = field.default;
-          else if (Array.isArray(field.enum) && field.enum.length) content[key] = field.enum[0];
-          else if (field.type === "boolean") content[key] = true;
-        }
-        const isToolApproval = params._meta?.codex_approval_kind === "mcp_tool_call";
-        send({
+      if (!authorityActive) {
+        diagnosticLog("codex.task", "rpc.server_request.revoked", {
           id: message.id,
-          result: isToolApproval && Object.keys(content).length === 0
-            ? { action: "accept", content: {}, _meta: { persist: "session" } }
-            : { action: "accept", content },
+          method: message.method,
         });
-      } else {
-        send({ id: message.id, error: { code: -32601, message: "Unsupported request" } });
       }
+      if (
+        authorityActive &&
+        message.method === "mcpServer/elicitation/request" &&
+        params.mode === "url"
+      ) {
+        progress("This task needs a separate sign-in or connection decision.");
+      }
+      send({
+        id: message.id,
+        ...taskServerRequestReply(message.method, params, authorityActive),
+      });
     };
 
     const handle = (message: JsonRpcMessage) => {
@@ -135,13 +314,30 @@ export class CodexTaskExecutor implements TaskExecutor {
       const params = message.params ?? {};
       diagnosticLog("codex.task", "rpc.notification", {
         method: message.method,
-        itemType: params.item?.type,
-        itemStatus: params.item?.status,
+        item: itemDiagnostic(params.item),
         turnStatus: params.turn?.status,
         delta: params.delta,
         message: params.message,
       });
-      if (message.method === "item/agentMessage/delta") {
+      if (message.method === "thread/tokenUsage/updated") {
+        latestUsage = normalizeTaskTokenUsage(params.tokenUsage);
+        if (latestUsage) {
+          diagnosticLog("codex.task", "usage.updated", {
+            threadId: params.threadId,
+            turnId: params.turnId,
+            usage: latestUsage,
+          });
+          usage?.(latestUsage);
+        }
+      } else if (message.method === "account/rateLimits/updated") {
+        latestAccountUsage = normalizeAccountUsage(params.rateLimits);
+        if (latestAccountUsage) {
+          diagnosticLog("codex.task", "account_usage.updated", {
+            accountUsage: latestAccountUsage,
+          });
+          accountUsage?.(latestAccountUsage);
+        }
+      } else if (message.method === "item/agentMessage/delta") {
         finalText += String(params.delta ?? "");
       } else if (message.method === "item/started") {
         const type = params.item?.type;
@@ -173,40 +369,105 @@ export class CodexTaskExecutor implements TaskExecutor {
         diagnosticLog("codex.task", "process.stderr", { line });
       }
     });
-    child.once("exit", (code, processSignal) =>
-      diagnosticLog("codex.task", "process.exited", { code, signal: processSignal }));
-
-    const stop = () => {
-      diagnosticLog("codex.task", "process.stop", { pid: child.pid, aborted: signal.aborted });
-      try { process.kill(-child.pid!, "SIGTERM"); } catch { child.kill(); }
+    const killProcessGroup = (processSignal: NodeJS.Signals) => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      try {
+        process.kill(-child.pid!, processSignal);
+      } catch {
+        try { child.kill(processSignal); } catch { /* Process already exited. */ }
+      }
     };
-    signal.addEventListener("abort", stop, { once: true });
+    const terminate = (reason: string, interrupt: boolean) => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      authorityRevoked ||= interrupt;
+      diagnosticLog("codex.task", "process.stop", {
+        pid: child.pid,
+        reason,
+        interrupt,
+        authorityRevoked,
+        threadId,
+        turnId,
+      });
+      if (interrupt && threadId && turnId && child.stdin.writable) {
+        send({
+          id: nextId++,
+          method: "turn/interrupt",
+          params: { threadId, turnId },
+        });
+      }
+      killProcessGroup(interrupt ? "SIGINT" : "SIGTERM");
+      const termTimer = setTimeout(() => killProcessGroup("SIGTERM"), 250);
+      const killTimer = setTimeout(() => killProcessGroup("SIGKILL"), 1_000);
+      termTimer.unref();
+      killTimer.unref();
+      terminationTimers.push(termTimer, killTimer);
+    };
+    const revokeAuthority = () => terminate("owner stop", true);
+    signal.addEventListener("abort", revokeAuthority, { once: true });
+    child.once("exit", (code, processSignal) => {
+      for (const timer of terminationTimers) clearTimeout(timer);
+      const failure = new Error(
+        authorityRevoked
+          ? "Task authority was revoked."
+          : `Codex app-server exited: code=${code}, signal=${processSignal}`,
+      );
+      for (const waiter of pending.values()) waiter.reject(failure);
+      pending.clear();
+      rejectTurn?.(failure);
+      diagnosticLog("codex.task", "process.exited", {
+        code,
+        signal: processSignal,
+        authorityRevoked,
+      });
+    });
+    const shutdownGracefully = async () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      diagnosticLog("codex.task", "process.graceful_shutdown.started", {
+        pid: child.pid,
+        threadId,
+        turnId,
+      });
+      const exited = new Promise<boolean>((resolve) => {
+        child.once("exit", () => resolve(true));
+      });
+      child.stdin.end();
+      const cleanExit = await Promise.race([
+        exited,
+        new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => resolve(false), 2_000);
+          timer.unref();
+        }),
+      ]);
+      diagnosticLog("codex.task", "process.graceful_shutdown.completed", {
+        pid: child.pid,
+        cleanExit,
+      });
+      if (!cleanExit) terminate("graceful shutdown timeout", false);
+    };
 
     try {
+      if (signal.aborted) {
+        revokeAuthority();
+        throw new Error("Task authority was revoked before execution started.");
+      }
       progress("Connecting to the managed Codex app-server.");
       await request("initialize", {
         clientInfo: { name: "bmo-companion", title: "BMO Companion", version: "0.1.0" },
         capabilities: { experimentalApi: true, mcpServerOpenaiFormElicitation: true },
       });
       send({ method: "initialized" });
-      const thread = await request("thread/start", {
-        cwd: process.cwd(),
-        ephemeral: true,
-        approvalPolicy: {
-          granular: {
-            mcp_elicitations: true,
-            request_permissions: true,
-            rules: true,
-            sandbox_approval: true,
-            skill_approval: true,
-          },
-        },
-        approvalsReviewer: "user",
-        sandbox: "workspace-write",
-      });
+      const thread = await request(
+        "thread/start",
+        createTaskThreadParams(process.cwd()),
+      );
+      threadId = thread.thread.id;
       progress("Codex is observing the current state and choosing an approach.");
-      await request("turn/start", {
-        threadId: thread.thread.id,
+      const turn = await request("turn/start", {
+        threadId,
+        ...(execution
+          ? { model: execution.model, effort: execution.effort }
+          : {}),
         input: [{
           type: "text",
           text: `You are the execution worker for BMO, a personal Mac Companion.
@@ -215,6 +476,14 @@ Reason from the goal and current observed state; never use a predetermined
 coordinate, shortcut, selector, or app-specific recipe. Recover from unexpected
 state and re-observe after meaningful actions. Do not permanently delete
 anything. Verify the requested real-world outcome before claiming completion.
+Always inspect the current state before acting. If the goal is already satisfied,
+verify it and finish without repeating the action.
+
+When the goal depends on a visible macOS app or browser UI, use Computer Use as
+the primary execution surface from the first action. Do not launch, focus, or
+control GUI apps through shell commands, \`open\`, AppleScript, or other
+command-execution fallbacks. Observe the live UI, act, then re-observe to verify.
+This is a general capability-routing rule, not an app-specific workflow.
 
 End with exactly one of these prefixes:
 VERIFIED OUTCOME: only when direct evidence confirms the requested condition.
@@ -223,15 +492,17 @@ UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.
 Goal: ${goal}`,
         }],
       });
+      turnId = turn.turn.id;
       const completion = await turnDone;
       const status = completion.turn?.status;
       const verified =
         status === "completed" &&
-        !failedTool &&
         finalText.trimStart().startsWith("VERIFIED OUTCOME:");
       const result = {
         summary: finalText.trim() || `Codex turn ended with status ${status ?? "unknown"}.`,
         verified,
+        usage: latestUsage,
+        accountUsage: latestAccountUsage,
       };
       diagnosticLog("codex.task", "execution.completed", {
         status,
@@ -239,10 +510,17 @@ Goal: ${goal}`,
         failedTool,
         summary: result.summary,
       });
+      if (!verified) this.computerUseHealth.observeFailure(result.summary);
       return result;
+    } catch (error) {
+      this.computerUseHealth.observeFailure(
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     } finally {
-      signal.removeEventListener("abort", stop);
-      stop();
+      signal.removeEventListener("abort", revokeAuthority);
+      if (authorityRevoked) terminate("executor cleanup after revocation", true);
+      else await shutdownGracefully();
       this.child = null;
     }
   }

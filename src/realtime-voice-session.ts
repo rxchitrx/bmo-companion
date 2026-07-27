@@ -3,6 +3,7 @@ import type {
   CompanionApi,
   RealtimeVoiceStartResult,
   RealtimeVoiceUpdate,
+  TokenUsage,
 } from "./types";
 
 export type RealtimeUiStatus =
@@ -56,6 +57,76 @@ export function classifyRealtimeDataEvent(type: string): RealtimeUiStatus | null
   return null;
 }
 
+export function normalizeRealtimeTokenUsage(value: unknown): TokenUsage | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, any>;
+  const candidate =
+    source.usage ??
+    source.session?.usage ??
+    source.response?.usage ??
+    source.turn?.usage ??
+    source.tokenUsage?.total ??
+    source.token_usage?.total ??
+    source.turn?.tokenUsage?.total ??
+    source.turn?.token_usage?.total ??
+    source;
+  if (!candidate || typeof candidate !== "object") return null;
+  const usage = candidate as Record<string, any>;
+  const number = (...keys: string[]) => {
+    for (const key of keys) {
+      if (typeof usage[key] === "number" && Number.isFinite(usage[key])) {
+        return Math.max(0, Math.round(usage[key]));
+      }
+    }
+    return 0;
+  };
+  const detailNumber = (
+    details: Record<string, unknown>,
+    ...keys: string[]
+  ) => {
+    for (const key of keys) {
+      if (
+        typeof details[key] === "number" &&
+        Number.isFinite(details[key] as number)
+      ) {
+        return Math.max(0, Math.round(details[key] as number));
+      }
+    }
+    return 0;
+  };
+  const inputTokens = number("inputTokens", "input_tokens");
+  const cachedInputTokens =
+    number("cachedInputTokens", "cached_input_tokens") ||
+    detailNumber(
+      usage.input_token_details ?? usage.inputTokensDetails ?? {},
+      "cachedTokens",
+      "cached_tokens",
+    );
+  const outputTokens = number("outputTokens", "output_tokens");
+  const reasoningOutputTokens =
+    number("reasoningOutputTokens", "reasoning_output_tokens") ||
+    (() => {
+      const details =
+        usage.output_token_details ?? usage.outputTokensDetails ?? {};
+      const reasoning =
+        details.reasoningTokens ?? details.reasoning_tokens;
+      return typeof reasoning === "number" && Number.isFinite(reasoning)
+        ? Math.max(0, Math.round(reasoning))
+        : 0;
+    })();
+  const totalTokens =
+    number("totalTokens", "total_tokens") || inputTokens + outputTokens;
+  return totalTokens > 0
+    ? {
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        reasoningOutputTokens,
+        totalTokens,
+      }
+    : null;
+}
+
 export class CodexRealtimeVoiceSession {
   private peer: RTCPeerConnection | null = null;
   private stream: MediaStream | null = null;
@@ -77,6 +148,7 @@ export class CodexRealtimeVoiceSession {
     private readonly emitMicrophoneState: (
       state: MicrophoneTrackState | null,
     ) => void = () => {},
+    private readonly emitUsage: (usage: TokenUsage) => void = () => {},
   ) {}
 
   get currentStatus() {
@@ -361,6 +433,17 @@ export class CodexRealtimeVoiceSession {
       };
       type = event.type ?? "unknown";
       role = event.role ?? event.item?.role ?? event.turn?.role;
+      if (
+        type === "session.usage.updated" ||
+        type === "response.done" ||
+        type === "turn.done"
+      ) {
+        const usage = normalizeRealtimeTokenUsage(event);
+        if (usage) {
+          clientDiagnostic("voice.webrtc", "usage.updated", { usage });
+          this.emitUsage(usage);
+        }
+      }
     } catch {
       type = "unparsed";
     }

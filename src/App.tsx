@@ -1,10 +1,16 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AccountUsage,
   CompanionState,
   ConversationUpdate,
+  ModelCatalogEntry,
+  ModelRole,
+  ModelSettings,
   RealtimeVoiceUpdate,
   RecallAnswer,
   TaskSnapshot,
+  TaskKind,
+  TokenUsage,
 } from "./types";
 import { clientDiagnostic } from "./diagnostics";
 import {
@@ -26,6 +32,67 @@ const labels: Record<CompanionState, string> = {
   error: "I need a hand",
 };
 
+const modelRoleLabels: Record<ModelRole, { label: string; detail: string }> = {
+  conversation: { label: "Talking", detail: "Typed chat and BMO's personality" },
+  general: { label: "General tasks", detail: "Research and mixed work" },
+  coding: { label: "Coding", detail: "Repositories, debugging, and code changes" },
+  computer: { label: "Mac control", detail: "Visible desktop applications" },
+  browser: { label: "Browser", detail: "Web navigation and browser actions" },
+  memory: { label: "Memory", detail: "Synthesizing retrieved local memories" },
+};
+
+function compactTokens(value: number) {
+  return new Intl.NumberFormat("en", {
+    notation: value >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function usageTitle(label: string, usage: TokenUsage) {
+  const freshTokens =
+    Math.max(0, usage.inputTokens - usage.cachedInputTokens) +
+    usage.outputTokens;
+  return `${label}: ${freshTokens.toLocaleString()} new · ${usage.cachedInputTokens.toLocaleString()} cached input · ${usage.totalTokens.toLocaleString()} processed total · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output · ${usage.reasoningOutputTokens.toLocaleString()} reasoning`;
+}
+
+function usageBadge(usage: TokenUsage) {
+  const freshTokens =
+    Math.max(0, usage.inputTokens - usage.cachedInputTokens) +
+    usage.outputTokens;
+  return usage.cachedInputTokens > 0
+    ? `${compactTokens(freshTokens)} NEW`
+    : compactTokens(usage.totalTokens);
+}
+
+function UsagePill({ text, detail }: { text: string; detail: string }) {
+  return (
+    <span
+      className="usage-pill"
+      tabIndex={0}
+      aria-label={detail}
+      data-tooltip={detail}
+    >
+      {text}
+    </span>
+  );
+}
+
+function accountUsageTitle(usage: AccountUsage) {
+  const parts = [
+    usage.planType ? `Plan: ${usage.planType}` : "",
+    usage.primaryUsedPercent != null
+      ? `Primary window: ${usage.primaryUsedPercent}% used`
+      : "",
+    usage.primaryResetsAt
+      ? `resets ${new Date(usage.primaryResetsAt * 1_000).toLocaleString()}`
+      : "",
+    usage.secondaryUsedPercent != null
+      ? `Secondary window: ${usage.secondaryUsedPercent}% used`
+      : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 export function App() {
   const [goal, setGoal] = useState("");
   const [task, setTask] = useState<TaskSnapshot | null>(null);
@@ -40,12 +107,17 @@ export function App() {
   const [micWaveform, setMicWaveform] = useState<number[]>([]);
   const [micTrackState, setMicTrackState] =
     useState<MicrophoneTrackState | null>(null);
+  const [voiceUsage, setVoiceUsage] = useState<TokenUsage | null>(null);
+  const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [modelsSaving, setModelsSaving] = useState(false);
+  const [modelsError, setModelsError] = useState("");
+  const [taskKind, setTaskKind] = useState<TaskKind>("general");
   const sessionRef = useRef<CodexRealtimeVoiceSession | null>(null);
   const lastSpokenRef = useRef("");
-  const taskRef = useRef<TaskSnapshot | null>(null);
+  const lastTaskStatusRef = useRef<TaskSnapshot["status"] | null>(null);
   const [recall, setRecall] = useState<RecallAnswer | null>(null);
-
-  useEffect(() => { taskRef.current = task; }, [task]);
 
   useEffect(() => {
     clientDiagnostic("ui", "application.mounted", {
@@ -88,9 +160,21 @@ export function App() {
         summary: nextTask.summary,
       });
       setTask(nextTask);
-      if (nextTask.status === "running") speak(nextTask.progress.at(-1) ?? "Working on it.", "task_progress");
-      if (nextTask.status === "completed") speak(nextTask.summary ?? "Your task is complete.", "task_completed");
-      if (nextTask.status === "cancelled") speak("Task stopped. Completed actions were not undone.", "task_cancelled");
+      const statusChanged = lastTaskStatusRef.current !== nextTask.status;
+      lastTaskStatusRef.current = nextTask.status;
+      if (!sessionRef.current?.active && statusChanged) {
+        if (nextTask.status === "running") speak("Approved. I’ve started the task.", "task_started");
+        if (nextTask.status === "completed") speak(nextTask.summary ?? "Your task is complete.", "task_completed");
+        if (nextTask.status === "failed") speak(nextTask.summary ?? "The task could not be completed.", "task_failed");
+        if (nextTask.status === "cancelled") speak("Task stopped. Completed actions were not undone.", "task_cancelled");
+      }
+    });
+    void window.companion.getCurrentTask().then((currentTask) => {
+      if (currentTask) setTask(currentTask);
+    }).catch((error) => {
+      clientDiagnostic("ui.task", "initial_snapshot_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
 
     const unsubscribeConversation = window.companion.onConversationUpdate((nextConversation) => {
@@ -127,6 +211,7 @@ export function App() {
       },
       setMicWaveform,
       setMicTrackState,
+      setVoiceUsage,
     );
     sessionRef.current = voiceSession;
 
@@ -148,23 +233,6 @@ export function App() {
               : update.transcript,
           );
         }
-        if (
-          update.role === "user" &&
-          update.transcript &&
-          /^(?:(?:hey\s+)?bmo[,.! ]+)?(?:stop|cancel)(?:\s+(?:the\s+)?task)?[.! ]*$/i.test(update.transcript.trim())
-        ) {
-          const activeTask = taskRef.current;
-          if (
-            activeTask &&
-            ["waiting_approval", "needs_decision", "suspended", "running"].includes(activeTask.status)
-          ) {
-            clientDiagnostic("ui.voice", "stop.forwarded_to_task", {
-              taskId: activeTask.id,
-              status: activeTask.status,
-            });
-            void window.companion.cancelTask(activeTask.id);
-          }
-        }
       },
     );
     return () => {
@@ -178,6 +246,24 @@ export function App() {
       window.removeEventListener("offline", offline);
       clientDiagnostic("ui", "application.unmounted");
     };
+  }, []);
+
+  useEffect(() => {
+    void Promise.all([
+      window.companion.getModelSettings(),
+      window.companion.listModels(),
+    ]).then(([settings, catalog]) => {
+      setModelSettings(settings);
+      setModelCatalog(catalog);
+      clientDiagnostic("ui.models", "loaded", {
+        modelCount: catalog.length,
+        settings,
+      });
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : "Could not load models.";
+      setModelsError(message);
+      clientDiagnostic("ui.models", "load_failed", { error: message });
+    });
   }, []);
 
   const conversationBusy = !!conversation && ["connecting", "sending", "responding"].includes(conversation.status);
@@ -244,6 +330,7 @@ export function App() {
       return;
     }
     try {
+      setVoiceUsage(null);
       await session.start(selectedMicId);
     } catch {
       // The session has already published a safe, visible degraded state.
@@ -335,12 +422,47 @@ export function App() {
     clientDiagnostic("ui.task", "create.requested", { goal: trimmed });
     setRecall(null);
     try {
-      setTask(await window.companion.startTask(trimmed));
+      setTask(await window.companion.startTask(trimmed, taskKind));
       setGoal("");
     } catch (error) {
       clientDiagnostic("ui.task", "create.rejected", {
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  function changeModel(role: ModelRole, model: string) {
+    if (!modelSettings) return;
+    const entry = modelCatalog.find((candidate) => candidate.model === model);
+    const currentEffort = modelSettings[role].effort;
+    const effort = entry?.supportedReasoningEfforts.includes(currentEffort)
+      ? currentEffort
+      : entry?.defaultReasoningEffort ?? "medium";
+    setModelSettings({
+      ...modelSettings,
+      [role]: { model, effort },
+    });
+  }
+
+  function changeEffort(role: ModelRole, effort: string) {
+    if (!modelSettings) return;
+    setModelSettings({
+      ...modelSettings,
+      [role]: { ...modelSettings[role], effort },
+    });
+  }
+
+  async function saveModels() {
+    if (!modelSettings || modelsSaving) return;
+    setModelsSaving(true);
+    setModelsError("");
+    try {
+      setModelSettings(await window.companion.updateModelSettings(modelSettings));
+      setModelsOpen(false);
+    } catch (error) {
+      setModelsError(error instanceof Error ? error.message : "Could not save models.");
+    } finally {
+      setModelsSaving(false);
     }
   }
 
@@ -451,7 +573,38 @@ export function App() {
         <span className="status-dot" />
         <span>{labels[state]}</span>
         {taskActive && task && <span className="task-id">TASK {task.id.slice(0, 6)}</span>}
+        {taskActive && task?.model && (
+          <span className="task-model" title={`This ${task.kind ?? "general"} Task is using ${task.model} at ${task.effort ?? "default"} reasoning`}>
+            {task.kind ?? "general"} · {task.model.replace("gpt-", "")} · {task.effort ?? "default"}
+          </span>
+        )}
+        <div className="usage-strip" aria-label="Token usage">
+          <UsagePill
+            text={`VOICE ${voiceUsage ? usageBadge(voiceUsage) : "—"}`}
+            detail={voiceUsage ? usageTitle("Current voice session", voiceUsage) : "No voice usage received yet"}
+          />
+          <UsagePill
+            text={`TASK ${task?.usage ? usageBadge(task.usage) : "—"}`}
+            detail={task?.usage ? usageTitle("Latest Codex task", task.usage) : "No Codex task usage received yet"}
+          />
+          <UsagePill
+            text={`LIMIT ${task?.accountUsage?.primaryUsedPercent != null ? `${task.accountUsage.primaryUsedPercent}%` : "—"}`}
+            detail={task?.accountUsage ? accountUsageTitle(task.accountUsage) : "No account limit update received yet"}
+          />
+          <UsagePill
+            text={`MEMORY ${recall?.usage ? usageBadge(recall.usage) : "—"}`}
+            detail={recall?.usage ? usageTitle("Latest memory lookup", recall.usage) : "No model-assisted memory usage received yet"}
+          />
+        </div>
         <div className="voice-controls">
+          <button
+            type="button"
+            className="button-models"
+            onClick={() => setModelsOpen(true)}
+            aria-label="Choose models"
+          >
+            Models
+          </button>
           <div
             className={`microphone-control microphone-control--${microphoneSignal}`}
             data-signal={microphoneSignal}
@@ -520,6 +673,61 @@ export function App() {
         </div>
       </header>
 
+      {modelsOpen && (
+        <section className="model-panel" aria-label="Model routing settings">
+          <div className="model-panel__header">
+            <div>
+              <small>MODEL ROUTING</small>
+              <strong>Choose the brain for each job</strong>
+            </div>
+            <button type="button" className="button-text" onClick={() => setModelsOpen(false)}>Close</button>
+          </div>
+          <div className="model-row model-row--managed">
+            <div>
+              <strong>Live speech</strong>
+              <small>Listening, speaking, and realtime conversation</small>
+            </div>
+            <span>Codex Realtime · managed</span>
+          </div>
+          {modelSettings && (Object.keys(modelRoleLabels) as ModelRole[]).map((role) => {
+            const selected = modelCatalog.find((entry) => entry.model === modelSettings[role].model);
+            return (
+              <div className="model-row" key={role}>
+                <div>
+                  <strong>{modelRoleLabels[role].label}</strong>
+                  <small>{modelRoleLabels[role].detail}</small>
+                </div>
+                <select
+                  value={modelSettings[role].model}
+                  onChange={(event) => changeModel(role, event.target.value)}
+                  aria-label={`${modelRoleLabels[role].label} model`}
+                >
+                  {modelCatalog.map((entry) => (
+                    <option key={entry.model} value={entry.model}>{entry.displayName}</option>
+                  ))}
+                </select>
+                <select
+                  value={modelSettings[role].effort}
+                  onChange={(event) => changeEffort(role, event.target.value)}
+                  aria-label={`${modelRoleLabels[role].label} reasoning`}
+                >
+                  {(selected?.supportedReasoningEfforts ?? [modelSettings[role].effort]).map((effort) => (
+                    <option key={effort} value={effort}>{effort}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+          {modelsError && <p className="model-panel__error">{modelsError}</p>}
+          <div className="model-panel__footer">
+            <small>New tasks freeze the selected model when they are created.</small>
+            <button className="button-primary" type="button" onClick={() => void saveModels()} disabled={!modelSettings || modelsSaving}>
+              {modelsSaving ? "Saving…" : "Save models"}
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="console" aria-live="polite">
         <div className="console-screen">
           <div className="eyes" aria-hidden="true">
@@ -566,6 +774,18 @@ export function App() {
                 </button>
               ) : (
                 <>
+                  <select
+                    className="task-kind-select"
+                    value={taskKind}
+                    onChange={(event) => setTaskKind(event.target.value as TaskKind)}
+                    title="Choose this Task's execution type"
+                    aria-label="Task execution type"
+                  >
+                    <option value="general">General</option>
+                    <option value="coding">Coding</option>
+                    <option value="computer">Mac</option>
+                    <option value="browser">Browser</option>
+                  </select>
                   <button
                     className="button-text button-compact"
                     type="button"
