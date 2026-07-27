@@ -12,7 +12,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 .sr-only {
   position: absolute;
@@ -218,11 +218,11 @@ button { cursor: pointer; }
 
 .console {
   width: min(64rem, 78vw);
-  height: min(72vh, 48rem);
+  height: min(74vh, 50rem);
   min-height: 32rem;
   position: relative;
   display: grid;
-  grid-template-rows: 1fr 34%;
+  grid-template-rows: 1fr;
   border: 0.18rem solid var(--ink);
   border-radius: clamp(2.2rem, 5vw, 5rem);
   background: color-mix(in oklch, var(--mint) 90%, var(--mint-light));
@@ -280,35 +280,54 @@ button { cursor: pointer; }
   opacity: 0.66;
 }
 
-.controls { position: relative; }
-.speaker { position: absolute; left: 10%; top: 15%; width: 33%; height: 15%; border: 0.17rem solid var(--ink); background: var(--deep); box-shadow: 0.35rem 0.35rem 0 var(--ink); }
-.button { position: absolute; border-radius: 50%; border: 0.17rem solid var(--ink); box-shadow: 0.28rem 0.28rem 0 var(--ink); }
-.button--blue { width: 6%; aspect-ratio: 1; left: 51%; top: 14%; background: oklch(45% 0.16 270); }
-.button--pink { width: 10%; aspect-ratio: 1; right: 18%; top: 42%; background: oklch(65% 0.22 354); }
-.button--green { width: 7.5%; aspect-ratio: 1; right: 10%; top: 25%; background: oklch(72% 0.19 132); }
-.button--yellow { width: 6%; aspect-ratio: 1; right: 28%; top: 25%; background: oklch(86% 0.18 97); }
-.dpad { position: absolute; left: 17%; top: 42%; width: 13%; aspect-ratio: 1; }
-.dpad span { position: absolute; inset: 35% 0; background: oklch(90% 0.18 100); border: 0.16rem solid var(--ink); }
-.dpad span:last-child { transform: rotate(90deg); }
-
-.command-stack { width: min(66rem, 92vw); margin-top: 1.3rem; }
-.stage:has(.command-stack) .console { min-height: 24rem; height: min(58vh, 42rem); }
-.command-bar, .approval-panel, .recall-bar {
+.command-dock {
+  width: min(52rem, 78vw);
+  margin-top: 0.7rem;
+  opacity: 0.68;
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+.command-dock:hover,
+.command-dock:focus-within {
+  opacity: 1;
+  transform: translateY(-0.12rem);
+}
+.command-dock form {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem;
+  border: 0.1rem solid oklch(24% 0.055 186 / 0.62);
+  border-radius: 0.85rem;
+  background: oklch(94% 0.035 164 / 0.7);
+  box-shadow: 0 0.18rem 0 oklch(37% 0.085 178 / 0.38);
+  backdrop-filter: blur(0.7rem);
+}
+.command-dock input {
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  padding: 0.62rem 0.72rem;
+  font-size: 0.88rem;
+}
+.command-dock input::placeholder {
+  color: oklch(34% 0.055 184 / 0.62);
+}
+.command-dock input:focus { box-shadow: none; }
+.command-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+.approval-panel {
   width: min(66rem, 92vw);
   padding: 1rem 1.1rem;
   background: oklch(91% 0.045 165);
   border: 0.14rem solid var(--ink);
   box-shadow: 0.35rem 0.4rem 0 var(--deep);
 }
-.command-stack .command-bar, .command-stack .recall-bar { width: 100%; }
-.recall-bar { margin-top: 0.65rem; background: oklch(88% 0.055 157); }
-.recall-bar label { display: block; margin: 0 0 0.55rem 0.15rem; font-size: 0.86rem; font-weight: 750; }
-.recall-bar > div { display: flex; gap: 0.7rem; }
-.recall-bar button { border: 0.12rem solid var(--ink); background: var(--deep); color: white; font-weight: 750; padding: 0.55rem 0.9rem; }
-.recall-answer { margin: 0.65rem 0 0; font-size: 0.9rem; line-height: 1.35; }
-.recall-answer small { display: block; margin-top: 0.3rem; opacity: 0.7; font-size: 0.75rem; }
-.command-bar label { display: block; margin: 0 0 0.55rem 0.15rem; font-weight: 750; }
-.command-bar > div, .approval-actions { display: flex; gap: 0.7rem; }
+.approval-actions { display: flex; gap: 0.7rem; }
 input {
   flex: 1;
   min-width: 0;
@@ -332,6 +351,24 @@ input:focus { box-shadow: 0 0 0 0.2rem oklch(64% 0.12 175 / 0.42); }
 .button-voice:disabled { cursor: not-allowed; opacity: 0.55; }
 .button-voice--header { min-height: 2.45rem; padding: 0.35rem 0.7rem; font-size: 0.68rem; letter-spacing: 0.06em; white-space: nowrap; }
 .button-text { background: transparent; }
+.button-compact {
+  min-height: 2.05rem;
+  padding: 0.38rem 0.58rem;
+  border-width: 0.08rem;
+  border-color: transparent;
+  border-radius: 0.5rem;
+  box-shadow: none;
+  font-size: 0.73rem;
+  white-space: nowrap;
+}
+.button-compact.button-text:hover {
+  border-color: oklch(24% 0.055 186 / 0.38);
+  background: oklch(97% 0.02 160 / 0.6);
+}
+.button-compact.button-primary {
+  border-color: var(--ink);
+  box-shadow: 0.12rem 0.13rem 0 var(--ink);
+}
 button:active { transform: translate(0.14rem, 0.14rem); box-shadow: none; }
 button:disabled { cursor: not-allowed; opacity: 0.52; transform: none; box-shadow: none; }
 
@@ -364,11 +401,9 @@ button:disabled { cursor: not-allowed; opacity: 0.52; transform: none; box-shado
   }
 }
 @media (max-height: 1000px) {
-  .stage:has(.command-stack) { padding-block: 1rem; }
-  .stage:has(.command-stack) .console { min-height: 21rem; height: 50vh; }
-  .stage:has(.command-stack) .command-stack { margin-top: 0.75rem; }
-  .stage:has(.command-stack) .command-bar,
-  .stage:has(.command-stack) .recall-bar { padding-block: 0.75rem; }
+  .stage:has(.command-dock) { padding-block: 1rem; }
+  .stage:has(.command-dock) .console { min-height: 24rem; height: 64vh; }
+  .stage:has(.command-dock) .command-dock { margin-top: 0.5rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

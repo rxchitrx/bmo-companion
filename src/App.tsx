@@ -43,7 +43,6 @@ export function App() {
   const sessionRef = useRef<CodexRealtimeVoiceSession | null>(null);
   const lastSpokenRef = useRef("");
   const taskRef = useRef<TaskSnapshot | null>(null);
-  const [recallQuestion, setRecallQuestion] = useState("");
   const [recall, setRecall] = useState<RecallAnswer | null>(null);
 
   useEffect(() => { taskRef.current = task; }, [task]);
@@ -299,6 +298,7 @@ export function App() {
       online: navigator.onLine,
       priorStatus: conversation?.status,
     });
+    setRecall(null);
     setVoiceMessage("");
     setConversation({
       requestId: "pending",
@@ -333,8 +333,10 @@ export function App() {
     const trimmed = goal.trim();
     if (!trimmed || taskActive || conversationBusy) return;
     clientDiagnostic("ui.task", "create.requested", { goal: trimmed });
+    setRecall(null);
     try {
       setTask(await window.companion.startTask(trimmed));
+      setGoal("");
     } catch (error) {
       clientDiagnostic("ui.task", "create.rejected", {
         error: error instanceof Error ? error.message : String(error),
@@ -342,10 +344,9 @@ export function App() {
     }
   }
 
-  async function recallPastWork(event: FormEvent) {
-    event.preventDefault();
-    const question = recallQuestion.trim();
-    if (!question) return;
+  async function recallPastWork() {
+    const question = goal.trim();
+    if (!question || conversationBusy) return;
     clientDiagnostic("ui.memory", "recall.requested", { text: question });
     try {
       const answer = await window.companion.recallMemory(question);
@@ -353,7 +354,10 @@ export function App() {
         answer: answer.answer,
         referenceCount: answer.references.length,
       });
+      setVoiceMessage("");
+      setConversation(null);
       setRecall(answer);
+      setGoal("");
     } catch (error) {
       clientDiagnostic("ui.memory", "recall.rejected", {
         error: error instanceof Error ? error.message : String(error),
@@ -436,6 +440,7 @@ export function App() {
   const displayText =
     voiceMessage ||
     conversation?.assistantText ||
+    recall?.answer ||
     (conversationBusy ? latestProgress : undefined) ||
     (taskActive ? task?.summary || latestProgress : latestProgress);
 
@@ -525,14 +530,6 @@ export function App() {
           <p className="thought">{displayText}</p>
           {conversation?.warning && <small className="transport-warning">{conversation.warning}</small>}
         </div>
-        <div className="controls" aria-hidden="true">
-          <div className="speaker" />
-          <div className="button button--blue" />
-          <div className="dpad"><span /><span /></div>
-          <div className="button button--pink" />
-          <div className="button button--green" />
-          <div className="button button--yellow" />
-        </div>
       </section>
 
       {task && ["waiting_approval", "needs_decision", "suspended"].includes(task.status) ? (
@@ -552,25 +549,47 @@ export function App() {
           </div>
         </section>
       ) : (
-        <section className="command-stack">
-          <form className="command-bar" onSubmit={submit}>
-            <label htmlFor="goal">Talk to BMO</label>
-            <div>
-              <input id="goal" value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="Say hello, ask a question, or describe a task…" disabled={task?.status === "running" || conversationBusy} />
+        <section className="command-dock">
+          <form onSubmit={submit}>
+            <label className="sr-only" htmlFor="goal">Ask BMO anything</label>
+            <input
+              id="goal"
+              value={goal}
+              onChange={(event) => setGoal(event.target.value)}
+              placeholder="Ask BMO anything…"
+              disabled={task?.status === "running" || conversationBusy}
+            />
+            <div className="command-actions">
               {task?.status === "running" ? (
-                <button type="button" className="button-stop" onClick={() => window.companion.cancelTask(task.id)}>Stop task</button>
+                <button type="button" className="button-stop button-compact" onClick={() => window.companion.cancelTask(task.id)}>
+                  Stop task
+                </button>
               ) : (
                 <>
-                  <button className="button-text" type="button" onClick={runAsTask} disabled={conversationBusy}>Run as task</button>
-                  <button className="button-primary" type="submit" disabled={conversationBusy}>Send</button>
+                  <button
+                    className="button-text button-compact"
+                    type="button"
+                    onClick={() => void runAsTask()}
+                    disabled={conversationBusy || !goal.trim()}
+                    title="Give this to a Codex worker"
+                  >
+                    Task
+                  </button>
+                  <button
+                    className="button-text button-compact"
+                    type="button"
+                    onClick={() => void recallPastWork()}
+                    disabled={conversationBusy || !goal.trim()}
+                    title="Search BMO's memory"
+                  >
+                    Recall
+                  </button>
+                  <button className="button-primary button-compact" type="submit" disabled={conversationBusy || !goal.trim()}>
+                    Send
+                  </button>
                 </>
               )}
             </div>
-          </form>
-          <form className="recall-bar" onSubmit={recallPastWork}>
-            <label htmlFor="recall">Ask about a completed Task</label>
-            <div><input id="recall" value={recallQuestion} onChange={(event) => setRecallQuestion(event.target.value)} placeholder="What did we finish for the website last week?" /><button type="submit">Recall</button></div>
-            {recall && <p className="recall-answer">{recall.answer}{recall.references.length > 0 && <small>{recall.references.map((reference) => ` Task ${reference.taskId.slice(0, 6)}${reference.source ? ` · ${reference.source.sourceName}` : " · Activity Ledger"}`).join(" ·")}</small>}</p>}
           </form>
         </section>
       )}
