@@ -142,6 +142,7 @@ export class CodexRealtimeVoiceClient {
     private readonly startComputerTask: (
       goal: string,
       kind: "general" | "coding" | "computer" | "browser",
+      retryOf?: TaskSnapshot,
     ) => Promise<TaskSnapshot> =
       async () => { throw new Error("Task delegation is unavailable."); },
     private readonly stopActiveTask: () => Promise<boolean> =
@@ -474,11 +475,17 @@ export class CodexRealtimeVoiceClient {
       };
     }
     const latest = this.readCurrentTask() ?? this.latestTask;
+    const latestAt = latest?.finishedAt ?? latest?.createdAt;
+    const matchingReconciliation =
+      latest?.status === "needs_decision" &&
+      latest.summary?.startsWith("RECONCILIATION:");
     const duplicateWithinGrace =
       !!latest &&
-      ["completed", "failed", "cancelled"].includes(latest.status) &&
+      (["completed", "failed", "cancelled"].includes(latest.status) ||
+        matchingReconciliation) &&
       latest.goal.trim().toLowerCase() === goal.toLowerCase() &&
-      Date.now() - this.lastTerminalTaskAt < 60_000;
+      (Date.now() - this.lastTerminalTaskAt < 60_000 ||
+        (!!latestAt && Date.now() - Date.parse(latestAt) < 60_000));
     if (duplicateWithinGrace && !explicitRetry) {
       diagnosticLog("voice.realtime", "computer_control.duplicate_suppressed", {
         taskId: latest.id,
@@ -494,12 +501,17 @@ export class CodexRealtimeVoiceClient {
         },
       };
     }
-    const task = await this.startComputerTask(goal, kind);
+    const task = await this.startComputerTask(
+      goal,
+      kind,
+      explicitRetry ? latest ?? undefined : undefined,
+    );
     this.latestTask = structuredClone(task);
     diagnosticLog("voice.realtime", "computer_control.started", {
       taskId: task.id,
       goal: textMeta(goal),
       kind,
+      retryOf: task.retryOf,
     });
     return {
       result: {

@@ -28,6 +28,14 @@ export interface AccountUsage {
   secondaryResetsAt?: number;
 }
 
+export interface TaskTiming {
+  startupMs: number;
+  executionMs: number;
+  settlingMs: number;
+  shutdownMs: number;
+  totalMs: number;
+}
+
 export interface TaskSnapshot {
   id: string;
   goal: string;
@@ -40,9 +48,14 @@ export interface TaskSnapshot {
   directiveId?: string;
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
+  timing?: TaskTiming;
   kind?: "general" | "coding" | "computer" | "browser";
   model?: string;
   effort?: string;
+  createdAt?: string;
+  finishedAt?: string;
+  retryOf?: string;
+  priorOutcome?: string;
 }
 
 export interface StoredTask {
@@ -56,8 +69,10 @@ export interface StoredTask {
 export interface ExecutionResult {
   summary: string;
   verified: boolean;
+  reconciliationRequired?: boolean;
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
+  timing?: TaskTiming;
   artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
 }
 
@@ -72,6 +87,8 @@ export interface TaskExecutor {
       model: string;
       effort: string;
       kind?: "general" | "coding" | "computer" | "browser";
+      retryOf?: string;
+      priorOutcome?: string;
     },
   ): Promise<ExecutionResult>;
 }
@@ -85,6 +102,10 @@ export interface TaskStore {
 
 export interface RecoveryObserver {
   observe(task: TaskSnapshot): Promise<{ scopeStillMatches: boolean; detail?: string }>;
+  reconcile?(task: TaskSnapshot): Promise<{
+    goalSatisfied?: boolean;
+    detail?: string;
+  }>;
 }
 
 export interface DirectiveTracker {
@@ -204,6 +225,8 @@ export class TaskRuntime {
       kind?: "general" | "coding" | "computer" | "browser";
       model?: string;
       effort?: string;
+      retryOf?: string;
+      priorOutcome?: string;
     } = {},
   ): Promise<TaskSnapshot> {
     diagnosticLog("task.runtime", "create.requested", {
@@ -212,6 +235,9 @@ export class TaskRuntime {
       kind: options.kind,
       model: options.model,
       effort: options.effort,
+      createdAt: this.now().toISOString(),
+      retryOf: options.retryOf,
+      priorOutcome: options.priorOutcome,
       currentTaskId: this.current?.task.id,
       currentStatus: this.current?.task.status,
     });
@@ -232,6 +258,9 @@ export class TaskRuntime {
       kind: options.kind,
       model: options.model,
       effort: options.effort,
+      createdAt: this.now().toISOString(),
+      retryOf: options.retryOf,
+      priorOutcome: options.priorOutcome,
     };
     this.current = { task, reminderIndex: 0, nextReminderAt: this.afterMinutes(REMINDER_MINUTES[0]), executionSurfaceAvailable: true };
     await this.persist("task.created");
@@ -250,6 +279,43 @@ export class TaskRuntime {
     await this.persist("task.approved");
     this.publish();
     await this.runApprovedTask(stored);
+  }
+
+  async createRetry(
+    previousId: string,
+    goal: string,
+    options: {
+      kind?: "general" | "coding" | "computer" | "browser";
+      model?: string;
+      effort?: string;
+    } = {},
+  ): Promise<TaskSnapshot> {
+    const previous = this.requireTask(previousId);
+    if (["running", "waiting_approval", "suspended"].includes(previous.task.status)) {
+      throw new Error("The current Task must settle before it can be retried.");
+    }
+    const priorOutcome =
+      previous.task.summary ??
+      previous.task.progress.at(-1) ??
+      "The previous Task ended without a recorded outcome.";
+    if (previous.task.status === "needs_decision") {
+      previous.task.status = "cancelled";
+      previous.task.state = "idle";
+      previous.task.finishedAt = this.now().toISOString();
+      previous.task.progress.push(
+        "The owner explicitly requested a retry. This unresolved attempt was superseded without replay.",
+      );
+      await this.persist("task.superseded", {
+        retryRequested: true,
+        actionReplay: false,
+      });
+      this.publish();
+    }
+    return this.create(goal, {
+      ...options,
+      retryOf: previous.task.id,
+      priorOutcome,
+    });
   }
 
   /** Direct confirmation is required for every approval-window extension. */
@@ -409,7 +475,7 @@ export class TaskRuntime {
       });
       return;
     }
-    stored.task.status = "cancelled"; stored.task.state = "idle"; stored.task.summary = summary; stored.task.progress.push(summary);
+    stored.task.status = "cancelled"; stored.task.state = "idle"; stored.task.finishedAt = this.now().toISOString(); stored.task.summary = summary; stored.task.progress.push(summary);
     this.abortController?.abort();
     await this.persist("task.cancelled", { reason }); this.publish();
   }
@@ -466,6 +532,12 @@ export class TaskRuntime {
               model: stored.task.model,
               effort: stored.task.effort,
               kind: stored.task.kind,
+              ...(stored.task.retryOf
+                ? { retryOf: stored.task.retryOf }
+                : {}),
+              ...(stored.task.priorOutcome
+                ? { priorOutcome: stored.task.priorOutcome }
+                : {}),
             }
           : undefined,
       );
@@ -479,12 +551,14 @@ export class TaskRuntime {
       stored.task.summary = result.summary;
       if (result.usage) stored.task.usage = result.usage;
       if (result.accountUsage) stored.task.accountUsage = result.accountUsage;
+      if (result.timing) stored.task.timing = result.timing;
       if (result.verified) {
-        stored.task.status = "completed"; stored.task.state = "speaking"; stored.task.progress.push("Verified Outcome recorded.");
+        stored.task.status = "completed"; stored.task.state = "speaking"; stored.task.finishedAt = this.now().toISOString(); stored.task.progress.push("Verified Outcome recorded.");
         await this.persist("task.completed", {
           verified: true,
           usage: stored.task.usage,
           accountUsage: stored.task.accountUsage,
+          timing: stored.task.timing,
         });
         try {
           await this.memory?.rememberCompletedTask({
@@ -498,6 +572,8 @@ export class TaskRuntime {
           stored.task.progress.push("Task completed, but its memory candidate could not be saved.");
           await this.record("memory.write_failed", stored.task, { error: message });
         }
+      } else if (result.reconciliationRequired) {
+        await this.reconcileUnverified(stored);
       } else {
         await this.fail(
           stored,
@@ -506,6 +582,7 @@ export class TaskRuntime {
             verified: false,
             usage: stored.task.usage,
             accountUsage: stored.task.accountUsage,
+            timing: stored.task.timing,
           },
         );
       }
@@ -538,13 +615,94 @@ export class TaskRuntime {
       summary,
       extra,
     });
-    stored.task.status = "failed"; stored.task.state = "error"; stored.task.summary = summary; stored.task.progress.push(summary);
+    stored.task.status = "failed"; stored.task.state = "error"; stored.task.finishedAt = this.now().toISOString(); stored.task.summary = summary; stored.task.progress.push(summary);
     await this.persist("task.failed", extra);
     if (stored.task.directiveId) {
       const outcome = await this.directives.recordFailure(stored.task.directiveId);
       await this.record(outcome.suspended ? "directive.suspended" : "directive.failure", stored.task, { directiveId: stored.task.directiveId, ...outcome });
       if (outcome.suspended) stored.task.progress.push("Standing Directive paused after repeated failed or blocked Tasks.");
     }
+  }
+
+  private async reconcileUnverified(stored: StoredTask) {
+    stored.task.status = "running";
+    stored.task.state = "thinking";
+    stored.task.summary =
+      "Computer Use lost its session after the Mac may have changed. Reconciling the actual state without retrying.";
+    stored.task.progress.push(
+      "Computer Use session quarantined. Starting read-only state reconciliation.",
+    );
+    await this.persist("task.reconciling", {
+      actionReplay: false,
+      usage: stored.task.usage,
+      accountUsage: stored.task.accountUsage,
+      timing: stored.task.timing,
+    });
+    this.publish();
+
+    let observation: { goalSatisfied?: boolean; detail?: string };
+    try {
+      observation = this.observer.reconcile
+        ? await this.observer.reconcile(this.snapshot())
+        : {
+            goalSatisfied: undefined,
+            detail: (await this.observer.observe(this.snapshot())).detail,
+          };
+    } catch (error) {
+      observation = {
+        goalSatisfied: undefined,
+        detail:
+          error instanceof Error
+            ? error.message
+            : "State reconciliation failed.",
+      };
+    }
+    if (this.current !== stored || stored.task.status !== "running") return;
+
+    const detail =
+      observation.detail ??
+      "BMO could not directly determine the final Mac state.";
+    await this.record("task.reconciliation_observed", stored.task, {
+      goalSatisfied: observation.goalSatisfied,
+      detail,
+      actionReplay: false,
+    });
+    if (observation.goalSatisfied === true) {
+      stored.task.status = "completed";
+      stored.task.state = "speaking";
+      stored.task.finishedAt = this.now().toISOString();
+      stored.task.summary = `VERIFIED OUTCOME AFTER RECONCILIATION: ${detail}`;
+      stored.task.progress.push(
+        "Read-only reconciliation verified that the original goal is already satisfied.",
+      );
+      await this.persist("task.completed", {
+        verified: true,
+        reconciled: true,
+        actionReplay: false,
+        usage: stored.task.usage,
+        accountUsage: stored.task.accountUsage,
+        timing: stored.task.timing,
+      });
+      return;
+    }
+
+    stored.task.status = "needs_decision";
+    stored.task.state = "approval";
+    stored.task.recoveryRequired = false;
+    stored.task.summary =
+      `RECONCILIATION: ${detail} No action was replayed and BMO will not retry automatically.`;
+    stored.task.progress.push(
+      "Reconciliation could not verify completion. Waiting for the owner instead of retrying.",
+    );
+    stored.reminderIndex = 0;
+    stored.nextReminderAt = this.afterMinutes(REMINDER_MINUTES[0]);
+    await this.persist("task.reconciliation_requires_decision", {
+      goalSatisfied: observation.goalSatisfied,
+      actionReplay: false,
+      usage: stored.task.usage,
+      accountUsage: stored.task.accountUsage,
+      timing: stored.task.timing,
+    });
   }
 
   private grantApproval(stored: StoredTask) {

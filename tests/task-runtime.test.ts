@@ -166,6 +166,163 @@ test("a stopped Computer Use session is reported as unverified without automatic
   assert.match(store.value?.task.summary ?? "", /will not retry automatically/);
 });
 
+test("a lost Computer Use session reconciles read-only and verifies an already satisfied goal", async () => {
+  const ledger = new MemoryLedger();
+  const store = new MemoryStore();
+  let executions = 0;
+  const runtime = new TaskRuntime(
+    {
+      async execute() {
+        executions += 1;
+        return {
+          summary: "UNVERIFIED: The Computer Use session was stopped.",
+          verified: false,
+          reconciliationRequired: true,
+          timing: {
+            startupMs: 10,
+            executionMs: 20,
+            settlingMs: 5,
+            shutdownMs: 2,
+            totalMs: 37,
+          },
+        };
+      },
+    },
+    ledger,
+    () => {},
+    undefined,
+    store,
+    {
+      async observe() {
+        return { scopeStillMatches: false };
+      },
+      async reconcile() {
+        return {
+          goalSatisfied: true,
+          detail: "GOAL SATISFIED: the requested application is visibly open.",
+        };
+      },
+    },
+  );
+  const task = await runtime.create("Open the requested application", {
+    kind: "computer",
+    model: "gpt-5.6-luna",
+    effort: "medium",
+  });
+
+  await runtime.approve(task.id);
+
+  assert.equal(executions, 1);
+  assert.equal(store.value?.task.status, "completed");
+  assert.match(store.value?.task.summary ?? "", /AFTER RECONCILIATION/);
+  assert.equal(store.value?.task.timing?.totalMs, 37);
+  assert.equal(
+    ledger.events.some((event) => event.type === "task.reconciliation_observed"),
+    true,
+  );
+});
+
+test("unknown reconciliation waits for the owner and never replays automatically", async () => {
+  const ledger = new MemoryLedger();
+  const store = new MemoryStore();
+  let executions = 0;
+  const runtime = new TaskRuntime(
+    {
+      async execute() {
+        executions += 1;
+        return {
+          summary: "UNVERIFIED: The Computer Use session was stopped.",
+          verified: false,
+          reconciliationRequired: true,
+        };
+      },
+    },
+    ledger,
+    () => {},
+    undefined,
+    store,
+    {
+      async observe() {
+        return { scopeStillMatches: false };
+      },
+      async reconcile() {
+        return {
+          goalSatisfied: undefined,
+          detail: "STATE UNKNOWN: direct evidence is unavailable.",
+        };
+      },
+    },
+  );
+  const task = await runtime.create("Open a browser", {
+    kind: "computer",
+    model: "gpt-5.6-luna",
+    effort: "medium",
+  });
+
+  await runtime.approve(task.id);
+
+  assert.equal(executions, 1);
+  assert.equal(store.value?.task.status, "needs_decision");
+  assert.match(store.value?.task.summary ?? "", /will not retry automatically/);
+  assert.equal(
+    ledger.events.some((event) => event.type === "task.reconciliation_requires_decision"),
+    true,
+  );
+});
+
+test("an explicit retry carries the authoritative prior outcome into one new approved Task", async () => {
+  const store = new MemoryStore();
+  const executions: Array<Record<string, unknown> | undefined> = [];
+  const runtime = new TaskRuntime(
+    {
+      async execute(_goal, _signal, _progress, _usage, _account, execution) {
+        executions.push(execution);
+        if (executions.length === 1) {
+          return {
+            summary: "UNVERIFIED: session stopped.",
+            verified: false,
+            reconciliationRequired: true,
+          };
+        }
+        return { summary: "VERIFIED OUTCOME: already open.", verified: true };
+      },
+    },
+    new MemoryLedger(),
+    () => {},
+    undefined,
+    store,
+    {
+      async observe() {
+        return { scopeStillMatches: false };
+      },
+      async reconcile() {
+        return { detail: "STATE UNKNOWN: no direct evidence." };
+      },
+    },
+  );
+  const first = await runtime.create("Open Safari", {
+    kind: "computer",
+    model: "gpt-5.6-luna",
+    effort: "medium",
+  });
+  await runtime.approve(first.id);
+  assert.equal(store.value?.task.status, "needs_decision");
+
+  const retry = await runtime.createRetry(first.id, first.goal, {
+    kind: "computer",
+    model: "gpt-5.6-luna",
+    effort: "medium",
+  });
+  assert.equal(retry.retryOf, first.id);
+  assert.match(retry.priorOutcome ?? "", /RECONCILIATION/);
+  await runtime.approve(retry.id);
+
+  assert.equal(executions.length, 2);
+  assert.equal(executions[1]?.retryOf, first.id);
+  assert.match(String(executions[1]?.priorOutcome), /RECONCILIATION/);
+  assert.equal(store.value?.task.status, "completed");
+});
+
 test("denial leaves the Mac unchanged and records cancellation", async () => {
   const ledger = new MemoryLedger();
   let executed = false;

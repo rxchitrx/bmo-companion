@@ -64,6 +64,19 @@ function usageBadge(usage: TokenUsage) {
     : compactTokens(usage.totalTokens);
 }
 
+function taskUsageTitle(task: TaskSnapshot) {
+  if (!task.usage) return "No Codex task usage received yet";
+  const usage = usageTitle("Latest Codex task", task.usage);
+  const timing = task.timing;
+  const route = task.model
+    ? `Model: ${task.model} · reasoning: ${task.effort ?? "default"}`
+    : "";
+  const phases = timing
+    ? `Timing: ${timing.totalMs.toLocaleString()} ms total · ${timing.startupMs.toLocaleString()} startup · ${timing.executionMs.toLocaleString()} execution · ${timing.settlingMs.toLocaleString()} settling · ${timing.shutdownMs.toLocaleString()} shutdown`
+    : "";
+  return [usage, route, phases].filter(Boolean).join(" · ");
+}
+
 function UsagePill({ text, detail }: { text: string; detail: string }) {
   return (
     <span
@@ -585,7 +598,7 @@ export function App() {
           />
           <UsagePill
             text={`TASK ${task?.usage ? usageBadge(task.usage) : "—"}`}
-            detail={task?.usage ? usageTitle("Latest Codex task", task.usage) : "No Codex task usage received yet"}
+            detail={task ? taskUsageTitle(task) : "No Codex task usage received yet"}
           />
           <UsagePill
             text={`LIMIT ${task?.accountUsage?.primaryUsedPercent != null ? `${task.accountUsage.primaryUsedPercent}%` : "—"}`}

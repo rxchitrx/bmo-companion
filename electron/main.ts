@@ -160,9 +160,11 @@ app.whenReady().then(async () => {
     memory,
   );
   realtimeVoice = new CodexRealtimeVoiceClient(
-    (goal, kind) => {
+    (goal, kind, retryOf) => {
       const selection = modelSettings.selection(kind);
-      return runtime.create(goal, { kind, ...selection });
+      return retryOf
+        ? runtime.createRetry(retryOf.id, goal, { kind, ...selection })
+        : runtime.create(goal, { kind, ...selection });
     },
     () => runtime.cancelActive(),
     () => runtime.currentTask(),

@@ -8,31 +8,14 @@ const SERVICE_MARKER =
 const UNHEALTHY_PATTERN =
   /computer use session was stopped|readline was closed|timed out waiting for tools\/call/i;
 
-export class ComputerUseHealth {
-  private unhealthyReason: string | null = null;
+export interface ComputerUseProcessController {
+  listExactHelpers(): Promise<number[]>;
+  terminate(pid: number): void;
+  isRunning(pid: number): Promise<boolean>;
+}
 
-  observeFailure(message: string | undefined) {
-    if (!message || !UNHEALTHY_PATTERN.test(message)) return;
-    this.unhealthyReason = message;
-    diagnosticLog("computer-use.health", "marked_unhealthy", {
-      reason: message,
-    });
-  }
-
-  isSessionFailure(message: string | undefined) {
-    return !!message && UNHEALTHY_PATTERN.test(message);
-  }
-
-  async prepare(
-    kind: "general" | "coding" | "computer" | "browser" | undefined,
-    progress: (message: string) => void,
-  ) {
-    if (!this.unhealthyReason || !["computer", "browser"].includes(kind ?? "")) {
-      return;
-    }
-    progress("Recovering the Computer Use helper after its previous session stopped.");
-    const priorReason = this.unhealthyReason;
-    this.unhealthyReason = null;
+class MacComputerUseProcessController implements ComputerUseProcessController {
+  async listExactHelpers(): Promise<number[]> {
     let candidates: number[] = [];
     try {
       const { stdout } = await execFileAsync("/usr/bin/pgrep", [
@@ -44,13 +27,10 @@ export class ComputerUseHealth {
         .map(Number)
         .filter((pid) => Number.isSafeInteger(pid) && pid > 1);
     } catch (error) {
-      if ((error as { code?: number }).code !== 1) {
-        this.unhealthyReason = priorReason;
-        throw error;
-      }
+      if ((error as { code?: number }).code !== 1) throw error;
     }
 
-    const stopped: number[] = [];
+    const exact: number[] = [];
     for (const pid of candidates) {
       try {
         const { stdout } = await execFileAsync("/bin/ps", [
@@ -59,16 +39,124 @@ export class ComputerUseHealth {
           "-o",
           "command=",
         ]);
-        if (!stdout.includes(SERVICE_MARKER)) continue;
-        process.kill(pid, "SIGTERM");
-        stopped.push(pid);
+        if (stdout.includes(SERVICE_MARKER)) exact.push(pid);
       } catch {
-        // The exact helper may already have exited; the next MCP client relaunches it.
+        // It exited between pgrep and ps.
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    diagnosticLog("computer-use.health", "helper_recovered", {
-      stoppedCount: stopped.length,
+    return exact;
+  }
+
+  terminate(pid: number) {
+    process.kill(pid, "SIGTERM");
+  }
+
+  async isRunning(pid: number): Promise<boolean> {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export interface ComputerUseTaskLease {
+  baselineHelperPids: number[];
+  startedAt: number;
+}
+
+export class ComputerUseHealth {
+  private unhealthyReason: string | null = null;
+
+  constructor(
+    private readonly processes: ComputerUseProcessController =
+      new MacComputerUseProcessController(),
+    private readonly now: () => number = () => Date.now(),
+  ) {}
+
+  observeFailure(message: string | undefined) {
+    if (!this.isSessionFailure(message)) return;
+    this.unhealthyReason = message!;
+    diagnosticLog("computer-use.health", "marked_unhealthy", {
+      reason: message,
     });
+  }
+
+  isSessionFailure(message: string | undefined) {
+    return !!message && UNHEALTHY_PATTERN.test(message);
+  }
+
+  async beginTask(
+    kind: "general" | "coding" | "computer" | "browser" | undefined,
+  ): Promise<ComputerUseTaskLease | undefined> {
+    if (!["computer", "browser"].includes(kind ?? "")) return undefined;
+    const baselineHelperPids = await this.processes.listExactHelpers();
+    const lease = { baselineHelperPids, startedAt: this.now() };
+    diagnosticLog("computer-use.health", "task_lease.started", {
+      baselineHelperCount: baselineHelperPids.length,
+    });
+    return lease;
+  }
+
+  async prepare(
+    kind: "general" | "coding" | "computer" | "browser" | undefined,
+    progress: (message: string) => void,
+  ) {
+    if (!this.unhealthyReason || !["computer", "browser"].includes(kind ?? "")) {
+      return;
+    }
+    progress("Starting a fresh owned Computer Use session after the previous session stopped.");
+    diagnosticLog("computer-use.health", "fresh_session_required", {
+      reason: this.unhealthyReason,
+    });
+    this.unhealthyReason = null;
+  }
+
+  /**
+   * Stops only a helper that appeared after this Task began. A pre-existing
+   * helper can belong to Codex or another application and is never terminated.
+   */
+  async quarantineOwnedSession(
+    lease: ComputerUseTaskLease | undefined,
+    reason: string,
+    progress: (message: string) => void,
+  ): Promise<{ stoppedPids: number[]; skippedSharedPids: number[] }> {
+    this.unhealthyReason = reason;
+    diagnosticLog("computer-use.health", "marked_unhealthy", { reason });
+    if (!lease) return { stoppedPids: [], skippedSharedPids: [] };
+
+    progress("Computer Use lost its session. Stopping its owned helper before reconciliation.");
+    const current = await this.processes.listExactHelpers();
+    const baseline = new Set(lease.baselineHelperPids);
+    const owned = current.filter((pid) => !baseline.has(pid));
+    const skippedSharedPids = current.filter((pid) => baseline.has(pid));
+    const stoppedPids: number[] = [];
+
+    for (const pid of owned) {
+      try {
+        this.processes.terminate(pid);
+        stoppedPids.push(pid);
+      } catch {
+        // It may already have exited.
+      }
+    }
+
+    const deadline = this.now() + 2_000;
+    while (
+      stoppedPids.length &&
+      this.now() < deadline &&
+      (await Promise.all(stoppedPids.map((pid) => this.processes.isRunning(pid))))
+        .some(Boolean)
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    diagnosticLog("computer-use.health", "owned_session.quarantined", {
+      stoppedCount: stoppedPids.length,
+      skippedSharedCount: skippedSharedPids.length,
+      elapsedMs: this.now() - lease.startedAt,
+    });
+    return { stoppedPids, skippedSharedPids };
   }
 }

@@ -6,10 +6,12 @@ import type {
   RecoveryObserver,
   TaskExecutor,
   TaskSnapshot,
+  TaskTiming,
   TokenUsage,
 } from "./task-runtime.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
 import { ComputerUseHealth } from "./computer-use-health.js";
+import { CodexTaskLifecycle } from "./codex-task-lifecycle.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -195,8 +197,17 @@ export class CodexTaskExecutor implements TaskExecutor {
       model: string;
       effort: string;
       kind?: "general" | "coding" | "computer" | "browser";
+      retryOf?: string;
+      priorOutcome?: string;
     },
   ): Promise<ExecutionResult> {
+    const requestedAt = Date.now();
+    let processSpawnedAt = requestedAt;
+    let turnStartedAt = requestedAt;
+    let turnCompletedAt = requestedAt;
+    let protocolSettledAt = requestedAt;
+    let shutdownStartedAt = requestedAt;
+    let executionResult: ExecutionResult | undefined;
     const codex =
       process.env.CODEX_CLI_PATH ||
       "/Applications/ChatGPT.app/Contents/Resources/codex";
@@ -207,6 +218,8 @@ export class CodexTaskExecutor implements TaskExecutor {
       execution,
     });
     await this.computerUseHealth.prepare(execution?.kind, progress);
+    const computerUseLease =
+      await this.computerUseHealth.beginTask(execution?.kind);
     if (!existsSync(codex)) throw new Error(`Codex executable not found: ${codex}`);
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
@@ -215,6 +228,7 @@ export class CodexTaskExecutor implements TaskExecutor {
       detached: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    processSpawnedAt = Date.now();
     this.child = child;
     diagnosticLog("codex.task", "process.spawned", { pid: child.pid });
     child.stdout.setEncoding("utf8");
@@ -230,6 +244,7 @@ export class CodexTaskExecutor implements TaskExecutor {
     let threadId: string | null = null;
     let turnId: string | null = null;
     let terminationStarted = false;
+    const lifecycle = new CodexTaskLifecycle();
     const terminationTimers: NodeJS.Timeout[] = [];
     const pending = new Map<number, {
       resolve: (value: any) => void;
@@ -260,6 +275,7 @@ export class CodexTaskExecutor implements TaskExecutor {
 
     const acceptServerRequest = (message: JsonRpcMessage) => {
       const params = message.params ?? {};
+      lifecycle.serverRequestStarted(message.id);
       const authorityActive = !authorityRevoked && !signal.aborted;
       diagnosticLog("codex.task", "rpc.server_request", {
         id: message.id,
@@ -284,6 +300,7 @@ export class CodexTaskExecutor implements TaskExecutor {
         id: message.id,
         ...taskServerRequestReply(message.method, params, authorityActive),
       });
+      lifecycle.serverRequestReplied(message.id);
     };
 
     const handle = (message: JsonRpcMessage) => {
@@ -341,12 +358,15 @@ export class CodexTaskExecutor implements TaskExecutor {
         finalText += String(params.delta ?? "");
       } else if (message.method === "item/started") {
         const type = params.item?.type;
+        lifecycle.itemStarted(params.item ?? {});
         if (type && !["agentMessage", "reasoning"].includes(type)) progress(`Codex started ${type}.`);
       } else if (message.method === "item/completed") {
         const item = params.item;
+        lifecycle.itemCompleted(item ?? {});
         if (item?.type === "agentMessage" && item.text) finalText = item.text;
         if (item?.status === "failed") failedTool = true;
       } else if (message.method === "turn/completed") {
+        lifecycle.turnCompleted();
         resolveTurn?.(params);
       } else if (message.method === "error") {
         progress(`Codex reported: ${params.message ?? "an execution error"}`);
@@ -370,17 +390,19 @@ export class CodexTaskExecutor implements TaskExecutor {
       }
     });
     const killProcessGroup = (processSignal: NodeJS.Signals) => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
       try {
         process.kill(-child.pid!, processSignal);
       } catch {
-        try { child.kill(processSignal); } catch { /* Process already exited. */ }
+        if (child.exitCode === null && child.signalCode === null) {
+          try { child.kill(processSignal); } catch { /* Process already exited. */ }
+        }
       }
     };
     const terminate = (reason: string, interrupt: boolean) => {
       if (terminationStarted) return;
       terminationStarted = true;
       authorityRevoked ||= interrupt;
+      if (interrupt) lifecycle.revoke();
       diagnosticLog("codex.task", "process.stop", {
         pid: child.pid,
         reason,
@@ -443,7 +465,19 @@ export class CodexTaskExecutor implements TaskExecutor {
         pid: child.pid,
         cleanExit,
       });
-      if (!cleanExit) terminate("graceful shutdown timeout", false);
+      if (!cleanExit) {
+        terminate("graceful shutdown timeout", false);
+        return;
+      }
+      // The app-server can exit before a detached MCP/Computer Use descendant.
+      // Its process group is BMO-owned, so reap the remaining group even after
+      // the leader has exited. This prevents actions after a terminal Task.
+      killProcessGroup("SIGTERM");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      killProcessGroup("SIGKILL");
+      diagnosticLog("codex.task", "process.owned_group_reaped", {
+        processGroupId: child.pid,
+      });
     };
 
     try {
@@ -478,6 +512,13 @@ state and re-observe after meaningful actions. Do not permanently delete
 anything. Verify the requested real-world outcome before claiming completion.
 Always inspect the current state before acting. If the goal is already satisfied,
 verify it and finish without repeating the action.
+${execution?.retryOf
+  ? `This is an explicit retry of Task ${execution.retryOf}.
+The authoritative prior outcome was:
+${execution.priorOutcome ?? "No prior outcome was recorded."}
+Begin by observing current state. Do not assume the earlier attempt failed to
+change the Mac, and do not repeat an action that is already satisfied.`
+  : ""}
 
 When the goal depends on a visible macOS app or browser UI, use Computer Use as
 the primary execution surface from the first action. Do not launch, focus, or
@@ -493,21 +534,50 @@ Goal: ${goal}`,
         }],
       });
       turnId = turn.turn.id;
+      turnStartedAt = Date.now();
       const completion = await turnDone;
+      turnCompletedAt = Date.now();
+      progress("Codex finished reasoning. Settling owned tools before publishing the result.");
+      const settlement = await lifecycle.waitForSettlement(signal);
+      protocolSettledAt = Date.now();
       const status = completion.turn?.status;
+      const protocolSettled = settlement.settled;
       const verified =
+        protocolSettled &&
         status === "completed" &&
         finalText.trimStart().startsWith("VERIFIED OUTCOME:");
-      const result = {
-        summary: finalText.trim() || `Codex turn ended with status ${status ?? "unknown"}.`,
+      let summary =
+        finalText.trim() ||
+        `Codex turn ended with status ${status ?? "unknown"}.`;
+      if (!protocolSettled) {
+        summary =
+          `UNVERIFIED: Codex ended before every owned operation settled. ` +
+          `${settlement.activeItems.length} item(s) and ` +
+          `${settlement.pendingServerRequests} request(s) remained active.`;
+      }
+      const sessionFailure =
+        this.computerUseHealth.isSessionFailure(summary) || !protocolSettled;
+      if (sessionFailure) {
+        await this.computerUseHealth.quarantineOwnedSession(
+          computerUseLease,
+          summary,
+          progress,
+        );
+      }
+      const result: ExecutionResult = {
+        summary,
         verified,
+        reconciliationRequired: sessionFailure,
         usage: latestUsage,
         accountUsage: latestAccountUsage,
       };
+      executionResult = result;
       diagnosticLog("codex.task", "execution.completed", {
         status,
         verified,
         failedTool,
+        protocolSettled,
+        settlement,
         summary: result.summary,
       });
       if (!verified) this.computerUseHealth.observeFailure(result.summary);
@@ -519,8 +589,25 @@ Goal: ${goal}`,
       throw error;
     } finally {
       signal.removeEventListener("abort", revokeAuthority);
+      shutdownStartedAt = Date.now();
       if (authorityRevoked) terminate("executor cleanup after revocation", true);
       else await shutdownGracefully();
+      const finishedAt = Date.now();
+      if (executionResult) {
+        const timing: TaskTiming = {
+          startupMs: Math.max(0, turnStartedAt - requestedAt),
+          executionMs: Math.max(0, turnCompletedAt - turnStartedAt),
+          settlingMs: Math.max(0, protocolSettledAt - turnCompletedAt),
+          shutdownMs: Math.max(0, finishedAt - shutdownStartedAt),
+          totalMs: Math.max(0, finishedAt - requestedAt),
+        };
+        executionResult.timing = timing;
+        diagnosticLog("codex.task", "execution.timing", {
+          processSpawnMs: Math.max(0, processSpawnedAt - requestedAt),
+          ...timing,
+          execution,
+        });
+      }
       this.child = null;
     }
   }
@@ -532,15 +619,63 @@ Goal: ${goal}`,
  * returns whether the saved Task scope still matches what it can observe.
  */
 export class CodexRecoveryObserver implements RecoveryObserver {
-  async observe(task: TaskSnapshot): Promise<{ scopeStillMatches: boolean; detail?: string }> {
+  async observe(
+    task: TaskSnapshot,
+  ): Promise<{ scopeStillMatches: boolean; detail?: string }> {
+    const detail = await this.runReadOnlyObservation(
+      task,
+      `Return exactly one line: STATE MATCHES: <brief direct observation> if
+the currently observable state still safely matches the saved Task scope;
+otherwise return STATE CHANGED: <brief reason>. If direct observation is
+insufficient, return STATE CHANGED: insufficient read-only evidence.`,
+      "restart",
+    );
+    return {
+      scopeStillMatches: detail.startsWith("STATE MATCHES:"),
+      detail,
+    };
+  }
+
+  async reconcile(
+    task: TaskSnapshot,
+  ): Promise<{ goalSatisfied?: boolean; detail?: string }> {
+    const detail = await this.runReadOnlyObservation(
+      task,
+      `Return exactly one line:
+GOAL SATISFIED: <brief direct evidence> only if current read-only evidence
+directly proves the original goal is already satisfied.
+GOAL NOT SATISFIED: <brief direct evidence> only if current evidence directly
+contradicts the goal.
+STATE UNKNOWN: <brief reason> when direct evidence is insufficient.
+Never infer success merely because an application process is running.`,
+      "reconciliation",
+    );
+    return {
+      goalSatisfied: detail.startsWith("GOAL SATISFIED:")
+        ? true
+        : detail.startsWith("GOAL NOT SATISFIED:")
+          ? false
+          : undefined,
+      detail,
+    };
+  }
+
+  private async runReadOnlyObservation(
+    task: TaskSnapshot,
+    outputContract: string,
+    mode: "restart" | "reconciliation",
+  ): Promise<string> {
     const codex = process.env.CODEX_CLI_PATH || "/Applications/ChatGPT.app/Contents/Resources/codex";
     diagnosticLog("codex.recovery", "observation.requested", {
       taskId: task.id,
       status: task.status,
+      mode,
       goal: textMeta(task.goal),
       binaryExists: existsSync(codex),
     });
-    if (!existsSync(codex)) return { scopeStillMatches: false, detail: "Codex is unavailable to re-observe the current state." };
+    if (!existsSync(codex)) {
+      return "STATE UNKNOWN: Codex is unavailable for read-only observation.";
+    }
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
       cwd: process.cwd(), env: { ...process.env }, detached: true, stdio: ["pipe", "pipe", "pipe"],
@@ -558,11 +693,15 @@ export class CodexRecoveryObserver implements RecoveryObserver {
       send({ id, method, params });
       return new Promise<any>((resolve, reject) => pending.set(id, { resolve, reject }));
     };
-    const denyAction = (message: JsonRpcMessage) => {
-      // Recovery may observe only through the app-server's read-only sandbox.
-      // It must never inherit the original Task's authority or approval.
-      send({ id: message.id, result: { decision: "decline" } });
-    };
+    const denyAction = (message: JsonRpcMessage) =>
+      send({
+        id: message.id,
+        ...taskServerRequestReply(
+          message.method,
+          message.params ?? {},
+          false,
+        ),
+      });
     const handle = (message: JsonRpcMessage) => {
       if (message.id != null && message.method) { denyAction(message); return; }
       if (message.id != null) {
@@ -588,29 +727,97 @@ export class CodexRecoveryObserver implements RecoveryObserver {
         try { handle(JSON.parse(line) as JsonRpcMessage); } catch { /* JSONL only */ }
       }
     });
-    const stop = () => { try { process.kill(-child.pid!, "SIGTERM"); } catch { child.kill(); } };
+    const stop = async () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      const exited = new Promise<void>((resolve) =>
+        child.once("exit", () => resolve()),
+      );
+      try { process.kill(-child.pid!, "SIGTERM"); } catch { child.kill("SIGTERM"); }
+      const stopped = await Promise.race([
+        exited.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 750)),
+      ]);
+      if (!stopped && child.exitCode === null && child.signalCode === null) {
+        try { process.kill(-child.pid!, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+        await Promise.race([
+          exited,
+          new Promise<void>((resolve) => setTimeout(resolve, 250)),
+        ]);
+      }
+    };
 
     try {
       await request("initialize", { clientInfo: { name: "bmo-companion", title: "BMO Companion", version: "0.1.0" } });
       send({ method: "initialized" });
       const thread = await request("thread/start", {
-        cwd: process.cwd(), ephemeral: true, sandbox: "read-only", approvalsReviewer: "user",
+        cwd: process.cwd(),
+        ephemeral: true,
+        sandbox: "read-only",
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        environments: [],
+        selectedCapabilityRoots: [],
+        config: {
+          apps: {
+            _default: {
+              enabled: false,
+              destructive_enabled: false,
+              open_world_enabled: false,
+            },
+          },
+        },
       });
       await request("turn/start", {
         threadId: thread.thread.id,
-        input: [{ type: "text", text: `You are a read-only Restart Recovery observer for BMO. Do not perform, request, suggest, or approve any action. Do not modify files, applications, browser state, services, or accounts. Inspect only state available without an approval. Compare it to this saved Task scope:\n\nGoal: ${task.goal}\nLast known status: ${task.status}\nLast recorded progress: ${task.progress.at(-1) ?? "none"}\n\nReturn exactly one line: STATE MATCHES: <brief observation> if the current observable state still safely matches the scope, otherwise STATE CHANGED: <brief reason>. If you cannot directly observe enough state, return STATE CHANGED.` }],
+        input: [{
+          type: "text",
+          text: `You are BMO's read-only ${mode} observer. Do not perform,
+request, suggest, approve, or retry any action. Do not modify files,
+applications, browser state, services, or accounts. Use only state available
+without an approval. Be conservative and distinguish direct evidence from
+inference.
+
+Goal: ${task.goal}
+Last known status: ${task.status}
+Last recorded progress: ${task.progress.at(-1) ?? "none"}
+Prior outcome: ${task.summary ?? task.priorOutcome ?? "none"}
+
+${outputContract}`,
+        }],
       });
-      await turnDone;
+      let observationTimer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          turnDone,
+          new Promise((_, reject) => {
+            observationTimer = setTimeout(
+              () => reject(new Error("Read-only observation timed out.")),
+              30_000,
+            );
+            observationTimer.unref();
+          }),
+        ]);
+      } finally {
+        if (observationTimer) clearTimeout(observationTimer);
+      }
       const detail = finalText.trim() || "Recovery observation returned no usable state.";
-      const result = { scopeStillMatches: detail.startsWith("STATE MATCHES:"), detail };
-      diagnosticLog("codex.recovery", "observation.completed", result);
-      return result;
+      diagnosticLog("codex.recovery", "observation.completed", {
+        mode,
+        detail,
+      });
+      return detail;
     } catch (error) {
-      const result = { scopeStillMatches: false, detail: error instanceof Error ? error.message : "Recovery observation failed." };
-      diagnosticLog("codex.recovery", "observation.failed", result);
-      return result;
+      const detail =
+        `STATE UNKNOWN: ${
+          error instanceof Error ? error.message : "Recovery observation failed."
+        }`;
+      diagnosticLog("codex.recovery", "observation.failed", {
+        mode,
+        detail,
+      });
+      return detail;
     } finally {
-      stop();
+      await stop();
     }
   }
 }

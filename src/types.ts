@@ -32,6 +32,14 @@ export interface AccountUsage {
   secondaryResetsAt?: number;
 }
 
+export interface TaskTiming {
+  startupMs: number;
+  executionMs: number;
+  settlingMs: number;
+  shutdownMs: number;
+  totalMs: number;
+}
+
 export interface TaskSnapshot {
   id: string;
   goal: string;
@@ -44,9 +52,14 @@ export interface TaskSnapshot {
   directiveId?: string;
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
+  timing?: TaskTiming;
   kind?: TaskKind;
   model?: string;
   effort?: string;
+  createdAt?: string;
+  finishedAt?: string;
+  retryOf?: string;
+  priorOutcome?: string;
 }
 
 export type TaskKind = "general" | "coding" | "computer" | "browser";

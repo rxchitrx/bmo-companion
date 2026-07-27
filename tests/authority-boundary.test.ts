@@ -226,3 +226,84 @@ test("approval transition is injected into voice context and spoken once", async
   );
   assert.equal(calls.at(-1)?.params.text, "Approved. I’ve started the task.");
 });
+
+test("realtime voice suppresses a matching recent Task unless retry is explicit", async () => {
+  const prior: TaskSnapshot = {
+    id: "prior-task",
+    goal: "Open Safari",
+    status: "failed",
+    state: "error",
+    progress: ["Computer Use stopped."],
+    summary: "UNVERIFIED: the Mac may already have changed.",
+    createdAt: new Date().toISOString(),
+  };
+  let starts = 0;
+  const client = new CodexRealtimeVoiceClient(
+    async () => {
+      starts += 1;
+      throw new Error("must not start");
+    },
+    async () => false,
+    () => prior,
+  );
+
+  const reply = await (
+    client as unknown as {
+      handleServerRequest(message: Record<string, unknown>): Promise<{
+        result?: { contentItems?: Array<{ text?: string }> };
+      }>;
+    }
+  ).handleServerRequest({
+    method: "item/tool/call",
+    params: {
+      tool: "control_computer",
+      arguments: { goal: "Open Safari", kind: "computer", retry: false },
+    },
+  });
+
+  assert.equal(starts, 0);
+  assert.match(reply.result?.contentItems?.[0]?.text ?? "", /matching Task just finished/);
+});
+
+test("an explicit realtime retry passes the authoritative prior Task to the new worker", async () => {
+  const prior: TaskSnapshot = {
+    id: "prior-task",
+    goal: "Open Safari",
+    status: "needs_decision",
+    state: "approval",
+    progress: ["Reconciliation needs a decision."],
+    summary: "RECONCILIATION: Safari may already be open.",
+    createdAt: new Date().toISOString(),
+  };
+  let receivedPrior: TaskSnapshot | undefined;
+  const client = new CodexRealtimeVoiceClient(
+    async (goal, kind, retryOf) => {
+      receivedPrior = retryOf;
+      return {
+        id: "retry-task",
+        goal,
+        status: "waiting_approval",
+        state: "approval",
+        progress: ["Waiting for approval."],
+        kind,
+        retryOf: retryOf?.id,
+      };
+    },
+    async () => false,
+    () => prior,
+  );
+
+  await (
+    client as unknown as {
+      handleServerRequest(message: Record<string, unknown>): Promise<unknown>;
+    }
+  ).handleServerRequest({
+    method: "item/tool/call",
+    params: {
+      tool: "control_computer",
+      arguments: { goal: "Open Safari", kind: "computer", retry: true },
+    },
+  });
+
+  assert.equal(receivedPrior?.id, prior.id);
+});
