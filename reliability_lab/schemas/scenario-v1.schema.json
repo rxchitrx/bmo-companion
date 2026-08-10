@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmo.local/schemas/reliability-scenario-v1.schema.json",
+  "title": "BMO Reliability Lab Scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "name",
+    "evaluationResultSchema",
+    "baseline",
+    "candidate"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "scenarioId": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "evaluationResultSchema": { "type": "string", "minLength": 1 },
+    "baseline": { "$ref": "#/$defs/run" },
+    "candidate": { "$ref": "#/$defs/run" }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "results"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "results": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

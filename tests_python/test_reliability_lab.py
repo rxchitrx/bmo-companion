@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import copy
+import io
+import json
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+
+from reliability_lab.cli import main, render_scorecard
+from reliability_lab.comparison import LabError, compare_scenario, load_scenario, validate_results
+
+
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE = ROOT / "reliability_lab/scenarios/deterministic-example.json"
+SCHEMA = json.loads((ROOT / "evaluation/evaluation-result.schema.json").read_text(encoding="utf-8"))
+FIXTURE = json.loads((ROOT / "reliability_lab/fixtures/deterministic-baseline.json").read_text(encoding="utf-8"))
+
+
+class ReliabilityLabTests(unittest.TestCase):
+    def test_example_preserves_unavailable_fields(self) -> None:
+        comparison = compare_scenario(load_scenario(EXAMPLE))
+
+        self.assertEqual(comparison["overallVerdict"], "incomplete")
+        self.assertEqual(comparison["summary"], {
+            "caseCount": 1,
+            "improved": 0,
+            "regressed": 0,
+            "unchanged": 3,
+            "unavailable": 6,
+        })
+        self.assertEqual(comparison["cases"][0]["metrics"]["input"]["status"], "unavailable")
+        self.assertNotIn("delta", comparison["cases"][0]["metrics"]["latency"])
+
+    def test_measured_resources_compare_lower_as_better(self) -> None:
+        baseline = copy.deepcopy(FIXTURE[0])
+        candidate = copy.deepcopy(FIXTURE[0])
+        baseline["input"] = {"status": "measured", "unit": "tokens", "value": 100}
+        candidate["input"] = {"status": "measured", "unit": "tokens", "value": 80}
+        baseline["latency"] = {"status": "measured", "unit": "milliseconds", "value": 50}
+        candidate["latency"] = {"status": "measured", "unit": "milliseconds", "value": 75}
+        comparison = self._compare_temp([baseline], [candidate])
+
+        metrics = comparison["cases"][0]["metrics"]
+        self.assertEqual(metrics["input"]["status"], "improved")
+        self.assertEqual(metrics["input"]["delta"], -20)
+        self.assertEqual(metrics["input"]["percentDelta"], -20.0)
+        self.assertEqual(metrics["latency"]["status"], "regressed")
+        self.assertEqual(comparison["overallVerdict"], "regression")
+
+    def test_outcome_regression_is_reported(self) -> None:
+        candidate = copy.deepcopy(FIXTURE[0])
+        candidate["outcome"] = {"status": "measured", "verdict": "fail", "summary": "Failed replay."}
+        comparison = self._compare_temp(FIXTURE, [candidate])
+
+        self.assertEqual(comparison["cases"][0]["outcome"]["status"], "regressed")
+        self.assertEqual(comparison["overallVerdict"], "regression")
+
+    def test_mixed_fixture_and_live_modes_are_rejected(self) -> None:
+        candidate = copy.deepcopy(FIXTURE[0])
+        candidate["mode"] = "live-runtime"
+        with self.assertRaisesRegex(LabError, "mixes modes"):
+            self._compare_temp(FIXTURE, [candidate])
+
+    def test_schema_rejects_measured_value_that_is_missing(self) -> None:
+        invalid = copy.deepcopy(FIXTURE)
+        invalid[0]["turns"] = {"status": "measured", "unit": "count"}
+        with self.assertRaisesRegex(LabError, "value is required"):
+            validate_results(invalid, SCHEMA, Path("invalid.json"))
+
+    def test_unknown_scenario_version_is_rejected(self) -> None:
+        scenario = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        scenario["schemaVersion"] = "2.0"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scenario.json"
+            path.write_text(json.dumps(scenario), encoding="utf-8")
+            with self.assertRaisesRegex(LabError, "Unsupported scenario"):
+                load_scenario(path)
+
+    def test_machine_readable_cli(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["compare", str(EXAMPLE), "--json"])
+        result = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["schemaVersion"], "1.0")
+        self.assertEqual(result["scenarioId"], "deterministic-zero-tool-replay")
+
+    def test_scorecard_is_concise_and_complete(self) -> None:
+        text = render_scorecard(compare_scenario(load_scenario(EXAMPLE)))
+
+        self.assertIn("Overall: INCOMPLETE", text)
+        self.assertIn("cached input: unsupported -> unsupported [unavailable]", text)
+        self.assertIn("outcome: pass -> pass [unchanged]", text)
+        self.assertIn("evidence: 2 -> 2 [unchanged]", text)
+
+    def _compare_temp(self, baseline: list[dict], candidate: list[dict]) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            (temp / "baseline.json").write_text(json.dumps(baseline), encoding="utf-8")
+            (temp / "candidate.json").write_text(json.dumps(candidate), encoding="utf-8")
+            (temp / "schema.json").write_text(json.dumps(SCHEMA), encoding="utf-8")
+            scenario = {
+                "schemaVersion": "1.0",
+                "scenarioId": "test",
+                "name": "Test scenario",
+                "evaluationResultSchema": "schema.json",
+                "baseline": {"label": "baseline", "results": "baseline.json"},
+                "candidate": {"label": "candidate", "results": "candidate.json"},
+            }
+            (temp / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
+            return compare_scenario(load_scenario(temp / "scenario.json"))
+
+
+if __name__ == "__main__":
+    unittest.main()

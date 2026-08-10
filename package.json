@@ -10,6 +10,7 @@
     "electron:compile": "tsc -p electron/tsconfig.json && cp electron/preload.cjs dist-electron/preload.cjs && mkdir -p dist-electron/native && cp native/BMOAppleBridge.swift dist-electron/native/BMOAppleBridge.swift && node --check dist-electron/preload.cjs",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p evaluation/tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts",
+    "test:reliability": "python3 -m unittest discover -s tests_python -v",
     "eval:canaries": "tsx evaluation/cli.ts"
   },
   "dependencies": {

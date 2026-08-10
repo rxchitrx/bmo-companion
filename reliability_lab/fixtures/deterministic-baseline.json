@@ -1,0 +1,20 @@
+[
+  {
+    "caseId": "zero-tool-startup",
+    "caseName": "Zero-tool startup",
+    "mode": "deterministic-fixture",
+    "input": { "status": "unsupported", "unit": "tokens", "note": "Input-token attribution is not available from fixtures." },
+    "cachedInput": { "status": "unsupported", "unit": "tokens", "note": "Cached-input attribution is not available from fixtures." },
+    "freshInput": { "status": "unsupported", "unit": "tokens", "note": "Fresh-input attribution is not available from fixtures." },
+    "output": { "status": "unsupported", "unit": "tokens", "note": "Output-token attribution is not available from fixtures." },
+    "reasoning": { "status": "unsupported", "unit": "tokens", "note": "Reasoning-token attribution is not available from fixtures." },
+    "turns": { "status": "measured", "unit": "count", "value": 1 },
+    "toolCalls": { "status": "measured", "unit": "count", "value": 0 },
+    "latency": { "status": "pending", "unit": "milliseconds", "note": "Awaiting live runtime timing telemetry." },
+    "outcome": { "status": "measured", "verdict": "pass", "summary": "Passed deterministic Zero-tool startup contract; this is not a live runtime result." },
+    "verificationEvidence": [
+      { "status": "measured", "kind": "fixture-output", "detail": "Output matched \"CANARY_OK\"." },
+      { "status": "measured", "kind": "fixture-event", "detail": "0 tool calls observed; budget is 0." }
+    ]
+  }
+]

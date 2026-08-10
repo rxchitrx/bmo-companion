@@ -21,6 +21,8 @@ The Markdown output is the human-readable report. `--json` emits results conform
 
 Fixture passes prove only the evaluation contract and runner behavior. They are not live model, voice, connector, approval, cancellation, latency, or token measurements.
 
+Saved JSON results can be compared offline with the independent Python Reliability Lab. See `reliability_lab/README.md`; the lab never invokes this runner or the realtime runtime itself.
+
 ## Missing telemetry
 
 Every result always contains:
