@@ -29,6 +29,7 @@ import {
   ConnectorEventMonitor,
   defaultConnectorWatches,
 } from "./connector-events.js";
+import { TASK_GOAL_MAX_CHARS } from "./context-packet.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -300,6 +301,9 @@ ipcMain.handle("task:start", (_event, payload: { goal?: unknown; kind?: unknown 
     ? rawKind
     : "general") as TaskKind;
   if (!goal) throw new Error("Task goal cannot be empty.");
+  if (goal.length > TASK_GOAL_MAX_CHARS) {
+    throw new Error(`Task goal exceeds the ${TASK_GOAL_MAX_CHARS}-character Context Packet limit.`);
+  }
   const selection = modelSettings.selection(kind);
   diagnosticLog("main", "ipc.task.start", { goal: textMeta(goal) });
   return runtime.create(goal, { kind, ...selection });

@@ -6,6 +6,7 @@ import {
 } from "./conversation-client.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
 import { recordContextSnapshot } from "./context-telemetry.js";
+import { TASK_GOAL_MAX_CHARS } from "./context-packet.js";
 import {
   taskSnapshotToRealtimeContext,
   taskStatusSpeech,
@@ -630,7 +631,7 @@ export class CodexRealtimeVoiceClient {
       ? rawKind
       : "general") as "general" | "coding" | "computer" | "browser";
     const explicitRetry = args?.retry === true;
-    if (!goal || goal.length > 20_000) {
+    if (!goal || goal.length > TASK_GOAL_MAX_CHARS) {
       return {
         result: {
           success: false,
