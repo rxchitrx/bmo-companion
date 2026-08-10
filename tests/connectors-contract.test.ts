@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ConnectorGateway } from "../electron/connector-gateway.ts";
+import { MODEL_VISIBLE_CAPABILITY_ALLOWLIST } from "../electron/capability-selection.ts";
 import type {
   ConnectorCommandResult,
   ConnectorCommandRunner,
@@ -247,6 +248,11 @@ test("every approved connector action has an explicit tested contract and safe m
         connectorAction.mode,
       ])));
     assert.deepEqual(actual, expectedModes);
+    assert.deepEqual(
+      [...MODEL_VISIBLE_CAPABILITY_ALLOWLIST].sort(),
+      Object.keys(actual).sort(),
+      "every model-visible action must be explicitly allowlisted",
+    );
     assert.deepEqual(Object.keys(samples).sort(), Object.keys(expectedModes).sort());
     assert.deepEqual(
       connectors.find((connector) => connector.id === "onepassword")?.actions,

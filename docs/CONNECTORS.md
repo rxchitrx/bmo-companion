@@ -2,10 +2,12 @@
 
 BMO exposes connected services to both typed Codex conversation and Codex Realtime Voice through two intent-scoped tools:
 
-1. `discover_services` returns only relevant installed capabilities and their exact parameter schemas.
+1. `discover_services` builds a bounded, allowlisted capability manifest and returns only task-relevant installed capabilities and their exact parameter schemas. Empty or unrelated queries return no catalog.
 2. `use_service` validates one discovered action. Reads execute immediately. Writes enter the durable Task runtime and cannot execute before scoped approval.
 
 Connector progress, approval, cancellation, failure and Verified Outcome events use the same authoritative Task state that is injected into the active realtime speech session. Ambient read monitors establish a baseline without speaking a backlog, then inject changed Calendar, Reminders, GitHub, Gmail and Todoist state into an active voice session. Notification-class updates use a fixed, token-free spoken notice. Up to 50 updates observed while voice is disconnected remain queued in memory and are delivered once when the next voice session starts.
+
+The selection/Context Packet/execution-kernel contract is documented in [CAPABILITY-SELECTION.md](./CAPABILITY-SELECTION.md).
 
 ## Safety boundary
 

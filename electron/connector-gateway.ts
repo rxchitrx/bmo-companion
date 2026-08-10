@@ -7,9 +7,12 @@ import type {
 } from "./connector-types.js";
 import type { ExecutionResult, TaskExecutor } from "./task-runtime.js";
 import { diagnosticLog } from "./diagnostics.js";
-
-const tokens = (value: string) =>
-  new Set(value.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []);
+import { recordContextSnapshot } from "./context-telemetry.js";
+import {
+  MODEL_VISIBLE_CAPABILITY_ALLOWLIST,
+  selectCapabilityManifest,
+  type CapabilitySelectionRequest,
+} from "./capability-selection.js";
 
 function safeArguments(
   action: ConnectorAction,
@@ -39,7 +42,11 @@ function safeArguments(
 export class ConnectorGateway {
   private readonly byId: Map<string, Connector>;
 
-  constructor(private readonly connectors: Connector[]) {
+  constructor(
+    private readonly connectors: Connector[],
+    private readonly capabilityAllowlist: ReadonlySet<string> =
+      MODEL_VISIBLE_CAPABILITY_ALLOWLIST,
+  ) {
     this.byId = new Map(connectors.map((connector) => [connector.id, connector]));
   }
 
@@ -76,29 +83,55 @@ export class ConnectorGateway {
     return (await this.statuses([connector]))[0] ?? null;
   }
 
-  async discover(query: string) {
-    const wanted = tokens(query);
-    const selected = this.connectors.filter((connector) => {
-      if (!wanted.size) return true;
-      const connectorTokens = tokens([
-        connector.id,
-        connector.label,
-        connector.category,
-        ...connector.actions.flatMap((item) => [item.name, item.label, item.description]),
-      ].join(" "));
-      return [...wanted].some((token) => connectorTokens.has(token));
-    });
-    const status = await this.statuses(selected);
-    return status
-      .map((connector) => {
-        const matchingActions = connector.actions.filter((item) => {
-          if (!wanted.size) return true;
-          const haystack = tokens(`${connector.id} ${connector.label} ${item.name} ${item.label} ${item.description}`);
-          return [...wanted].some((token) => haystack.has(token));
-        });
-        return { ...connector, actions: matchingActions };
-      })
-      .filter((connector) => connector.actions.length > 0 || !wanted.size);
+  async discover(query: string, requestedCapabilityIds: readonly string[] = []) {
+    const request: CapabilitySelectionRequest = { task: query, requestedCapabilityIds };
+    const manifest = selectCapabilityManifest(
+      this.connectors,
+      request,
+      this.capabilityAllowlist,
+    );
+    recordContextSnapshot(
+      "connectors.capabilities",
+      "selection.completed",
+      manifest,
+      [
+        {
+          name: "capability_request",
+          source: "discover_services.query",
+          provenance: "user",
+          value: query,
+        },
+        {
+          name: "capability_manifest",
+          source: "selectCapabilityManifest",
+          provenance: "tool",
+          value: manifest,
+        },
+      ],
+      {
+        requestTokenCount: manifest.request.tokenCount,
+        selectedServiceCount: manifest.capabilities.length,
+        selectedActionCount: manifest.selectedCapabilityIds.length,
+        omittedActionCount:
+          manifest.omitted.notAllowlisted +
+          manifest.omitted.irrelevant +
+          manifest.omitted.overLimit,
+      },
+    );
+    const selectedByService = new Map(
+      manifest.capabilities.map((service) => [
+        service.id,
+        new Set(service.actions.map((action) => action.name)),
+      ]),
+    );
+    const selectedConnectors = this.connectors.filter((connector) =>
+      selectedByService.has(connector.id));
+    const statuses = await this.statuses(selectedConnectors);
+    return statuses.map((connector) => ({
+      ...connector,
+      actions: connector.actions.filter((action) =>
+        selectedByService.get(connector.id)?.has(action.name)),
+    }));
   }
 
   prepare(service: string, actionName: string, rawArguments: unknown): ConnectorCall {
