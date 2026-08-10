@@ -3,6 +3,8 @@ work/
 node_modules/
 dist-ui/
 dist-electron/
+__pycache__/
+*.py[cod]
 .DS_Store
 
 # Local secrets and machine-specific configuration

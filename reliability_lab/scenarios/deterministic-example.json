@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "deterministic-zero-tool-replay",
+  "name": "Deterministic zero-tool replay",
+  "evaluationResultSchema": "../../evaluation/evaluation-result.schema.json",
+  "baseline": {
+    "label": "fixture baseline",
+    "results": "../fixtures/deterministic-baseline.json"
+  },
+  "candidate": {
+    "label": "fixture candidate",
+    "results": "../fixtures/deterministic-candidate.json"
+  }
+}

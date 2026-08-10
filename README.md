@@ -25,6 +25,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `docs/EVALUATION.md` — deterministic five-canary evaluation scaffold and safe integration guide.
 - `electron/context-packet.ts` — bounded Context Packet selection and manifests for managed Tasks.
 - `docs/CONTEXT-PACKETS.md` — Context Packet inclusion, budget, history, and privacy boundaries.
+- `reliability_lab/README.md` — offline Python baseline-versus-candidate replay analysis.
 
 ## Important boundaries
 
