@@ -1,14 +1,16 @@
 # Minimal Task Context Packets
 
-BMO sends each managed Codex Task a typed, purpose-bound `TaskContextPacket`.
+BMO sends each managed Task a typed, purpose-bound `TaskContextPacket`.
 The production builder and renderer live in `electron/context-packet.ts`; the
-managed Task transport consumes them in `electron/codex-adapter.ts`.
+minimal execution kernel builds them before selecting capabilities and invoking
+the connector or Codex worker. The Codex adapter consumes the supplied packet.
 
 ## Included by default
 
 - The approved Task objective, capped at 20,000 characters.
-- One capability reference selected from the Task kind: baseline worker,
-  workspace work, or Computer Use.
+- For Codex Tasks, one capability reference selected from the Task kind:
+  baseline worker, workspace work, or Computer Use. Connector Tasks instead
+  receive their exact Task 4 selection in the execution manifest.
 - A manifest recording source, provenance, inclusion reason, size, and whether
   truncation occurred.
 - A 22,000-character content budget with exact used and remaining counts.
@@ -33,6 +35,5 @@ contain provenance, inclusion reason, budget, truncation state, character/byte
 counts, and hashes. The goal and retry summary themselves are not recorded.
 Codex-owned inherited runtime context remains explicitly reported as unknown.
 
-This slice does not change voice/conversation sessions, load tools dynamically,
-change approval or lifecycle behavior, add evaluation canaries, or refactor the
-broader runtime.
+The execution kernel keeps this packet boundary without changing voice or typed
+conversation sessions, approval policy, recovery rules, or the broader runtime.

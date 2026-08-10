@@ -26,10 +26,10 @@ The manifest carries `authority: "selection-only"`. Consumers must treat that as
 
 ## Context Packet integration
 
-The forthcoming Context Packet assembler should accept the returned manifest as a separate, replaceable segment. It should serialize only `capabilities` plus the manifest version/limits needed by the consumer; it must not serialize connector implementations, `run` functions, credentials, connection setup details, or the full connector catalog. A new user task should replace the prior manifest rather than unioning capabilities across turns.
+The execution kernel now accepts the returned manifest as a separate, replaceable selection and normalizes it to stable capability ids plus version/count metadata. It does not serialize connector implementations, `run` functions, credentials, connection setup details, or the full connector catalog. A new Task replaces the prior selection rather than unioning capabilities across turns.
 
 Task 1 metadata telemetry already observes the boundary through the `connectors.capabilities` / `selection.completed` context snapshot. It records request/manifest size and hashes plus selected/omitted counts, not the raw task or schemas.
 
 ## Execution-kernel integration
 
-The forthcoming execution kernel may use `selectedCapabilityIds` to reject planner drift early, but it must continue to treat `ConnectorGateway.prepare()` and the Task runtime as authoritative. Selection is never proof of permission, approval, connectivity, or execution. Exact requested ids are retained only when they are allowlisted and within the fixed manifest limits.
+The execution kernel uses `selectedCapabilityIds` to reject connector drift before invoking its single scoped worker, while continuing to treat `ConnectorGateway.prepare()` and the Task runtime as authoritative. Selection is never proof of permission, approval, connectivity, or execution. Exact requested ids are retained only when they are allowlisted and within the fixed manifest limits.

@@ -26,6 +26,8 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `electron/context-packet.ts` — bounded Context Packet selection and manifests for managed Tasks.
 - `docs/CONTEXT-PACKETS.md` — Context Packet inclusion, budget, history, and privacy boundaries.
 - `reliability_lab/README.md` — offline Python baseline-versus-candidate replay analysis.
+- `electron/execution-kernel.ts` — one-worker Task orchestration and the typed VerifiedOutcome boundary.
+- `docs/EXECUTION-KERNEL.md` — execution flow, lifecycle event contract, and integration requirements.
 
 ## Important boundaries
 

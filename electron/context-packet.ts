@@ -27,7 +27,7 @@ export interface TaskContextPacket {
   schemaVersion: "1";
   purpose: {
     type: "task_execution";
-    taskKind: Exclude<TaskKind, "connector">;
+    taskKind: TaskKind;
     objective: string;
   };
   relevantContext: Array<{
@@ -96,8 +96,9 @@ export function boundHistorySummary(
 }
 
 function capabilityReferences(
-  kind: Exclude<TaskKind, "connector">,
+  kind: TaskKind,
 ): ContextPacketCapabilityReference[] {
+  if (kind === "connector") return [];
   if (kind === "coding") {
     return [{
       id: "codex.workspace",
@@ -127,7 +128,7 @@ export function createTaskContextPacket(input: {
   if (objective.length > TASK_GOAL_MAX_CHARS) {
     throw new Error(`Task goal exceeds the ${TASK_GOAL_MAX_CHARS}-character Context Packet limit.`);
   }
-  const taskKind = input.kind === "connector" ? "general" : input.kind ?? "general";
+  const taskKind = input.kind ?? "general";
   const manifest: ContextPacketManifestEntry[] = [{
     id: "task_goal",
     provenance: "user",

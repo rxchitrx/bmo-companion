@@ -30,6 +30,7 @@ import {
   defaultConnectorWatches,
 } from "./connector-events.js";
 import { TASK_GOAL_MAX_CHARS } from "./context-packet.js";
+import { MinimalExecutionKernel } from "./execution-kernel.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -170,9 +171,15 @@ app.whenReady().then(async () => {
     join(app.getPath("userData"), "activity-ledger.jsonl"),
   );
   runtime = new TaskRuntime(
-    new ConnectorRoutingTaskExecutor(
-      connectorGateway,
-      new CodexTaskExecutor(computerUseHealth),
+    new MinimalExecutionKernel(
+      new ConnectorRoutingTaskExecutor(
+        connectorGateway,
+        new CodexTaskExecutor(computerUseHealth),
+      ),
+      {
+        selectConnectorCapabilities: (request) =>
+          connectorGateway.selectCapabilities(request),
+      },
     ),
     activityLedger,
     (task) => {

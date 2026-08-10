@@ -83,13 +83,17 @@ export class ConnectorGateway {
     return (await this.statuses([connector]))[0] ?? null;
   }
 
-  async discover(query: string, requestedCapabilityIds: readonly string[] = []) {
-    const request: CapabilitySelectionRequest = { task: query, requestedCapabilityIds };
-    const manifest = selectCapabilityManifest(
+  selectCapabilities(request: CapabilitySelectionRequest) {
+    return selectCapabilityManifest(
       this.connectors,
       request,
       this.capabilityAllowlist,
     );
+  }
+
+  async discover(query: string, requestedCapabilityIds: readonly string[] = []) {
+    const request: CapabilitySelectionRequest = { task: query, requestedCapabilityIds };
+    const manifest = this.selectCapabilities(request);
     recordContextSnapshot(
       "connectors.capabilities",
       "selection.completed",

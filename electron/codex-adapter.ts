@@ -5,6 +5,7 @@ import type {
   ExecutionResult,
   RecoveryObserver,
   TaskExecutor,
+  TaskExecutionOptions,
   TaskSnapshot,
   TaskTiming,
   TokenUsage,
@@ -19,6 +20,10 @@ import {
   createTaskContextPacket,
   renderTaskContextPacket,
 } from "./context-packet.js";
+import {
+  createExecutionCapabilityManifest,
+  renderExecutionCapabilityManifest,
+} from "./execution-kernel.js";
 import { ComputerUseHealth } from "./computer-use-health.js";
 import { CodexTaskLifecycle } from "./codex-task-lifecycle.js";
 
@@ -98,6 +103,22 @@ function itemDiagnostic(item: Record<string, any> | undefined) {
     exitCode: item.exitCode,
     errorCode: item.error?.code,
     errorMessage: item.error?.message,
+  };
+}
+
+function executionDiagnostic(execution: TaskExecutionOptions | undefined) {
+  if (!execution) return undefined;
+  return {
+    model: execution.model,
+    effort: execution.effort,
+    kind: execution.kind,
+    retryOf: execution.retryOf,
+    connectorCapability: execution.connectorCall
+      ? `${execution.connectorCall.service}.${execution.connectorCall.action}`
+      : undefined,
+    contextPacketVersion: execution.contextPacket?.schemaVersion,
+    capabilityManifestVersion: execution.capabilityManifest?.version,
+    selectedCapabilityIds: execution.capabilityManifest?.selectedCapabilityIds,
   };
 }
 
@@ -202,13 +223,7 @@ export class CodexTaskExecutor implements TaskExecutor {
     progress: (message: string) => void,
     usage?: (usage: TokenUsage) => void,
     accountUsage?: (usage: AccountUsage) => void,
-    execution?: {
-      model: string;
-      effort: string;
-      kind?: "general" | "coding" | "computer" | "browser";
-      retryOf?: string;
-      priorOutcome?: string;
-    },
+    execution?: TaskExecutionOptions,
   ): Promise<ExecutionResult> {
     const requestedAt = Date.now();
     let processSpawnedAt = requestedAt;
@@ -224,11 +239,14 @@ export class CodexTaskExecutor implements TaskExecutor {
       goal: textMeta(goal),
       binaryExists: existsSync(codex),
       aborted: signal.aborted,
-      execution,
+      execution: executionDiagnostic(execution),
     });
-    await this.computerUseHealth.prepare(execution?.kind, progress);
+    const codexTaskKind = execution?.kind === "connector"
+      ? "general"
+      : execution?.kind;
+    await this.computerUseHealth.prepare(codexTaskKind, progress);
     const computerUseLease =
-      await this.computerUseHealth.beginTask(execution?.kind);
+      await this.computerUseHealth.beginTask(codexTaskKind);
     if (!existsSync(codex)) throw new Error(`Codex executable not found: ${codex}`);
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
@@ -526,12 +544,14 @@ export class CodexTaskExecutor implements TaskExecutor {
       const thread = await request("thread/start", threadParams);
       threadId = thread.thread.id;
       progress("Codex is observing the current state and choosing an approach.");
-      const contextPacket = createTaskContextPacket({
+      const contextPacket = execution?.contextPacket ?? createTaskContextPacket({
         goal,
         kind: execution?.kind,
         retryOf: execution?.retryOf,
         priorOutcome: execution?.priorOutcome,
       });
+      const capabilityManifest = execution?.capabilityManifest ??
+        createExecutionCapabilityManifest(contextPacket);
       const workerInstruction = `You are the execution worker for BMO, a personal Mac Companion.
 Complete only the purpose in the Task Context Packet. The packet contains only
 task-scoped context selected by BMO. Do not request or infer ambient conversation
@@ -555,7 +575,11 @@ This is a general capability-routing rule, not an app-specific workflow.
 End with exactly one of these prefixes:
 VERIFIED OUTCOME: only when direct evidence confirms the requested condition.
 UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.`;
-      const workerPrompt = `${workerInstruction}\n\n${renderTaskContextPacket(contextPacket)}`;
+      const workerPrompt = [
+        workerInstruction,
+        renderTaskContextPacket(contextPacket),
+        renderExecutionCapabilityManifest(capabilityManifest),
+      ].join("\n\n");
       const turnParams = {
         threadId,
         ...(execution
@@ -579,6 +603,13 @@ UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.
           },
           ...contextPacketTelemetrySegments(contextPacket),
           {
+            name: "execution_capability_manifest",
+            source: "MinimalExecutionKernel",
+            provenance: "tool",
+            value: capabilityManifest,
+            inclusionReason: "The worker receives only the capability manifest selected for this Task.",
+          },
+          {
             name: "codex_runtime_inherited_context",
             source: "codex-app-server",
             provenance: "runtime",
@@ -591,6 +622,7 @@ UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.
           contextUsedChars: contextPacket.budget.usedContentChars,
           contextItemCount: contextPacket.manifest.length,
           capabilityReferenceCount: contextPacket.capabilityReferences.length,
+          selectedCapabilityCount: capabilityManifest.selectedCapabilityIds.length,
         },
       );
       const turn = await request("turn/start", turnParams);
@@ -666,7 +698,7 @@ UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.
         diagnosticLog("codex.task", "execution.timing", {
           processSpawnMs: Math.max(0, processSpawnedAt - requestedAt),
           ...timing,
-          execution,
+          execution: executionDiagnostic(execution),
         });
       }
       this.child = null;

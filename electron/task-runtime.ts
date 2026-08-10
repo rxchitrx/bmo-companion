@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
 import type { ConnectorCall } from "./connector-types.js";
+import type { TaskContextPacket } from "./context-packet.js";
+import type { ExecutionCapabilityManifest } from "./execution-kernel.js";
 
 export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
 
@@ -80,6 +82,17 @@ export interface ExecutionResult {
   artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
 }
 
+export interface TaskExecutionOptions {
+  model?: string;
+  effort?: string;
+  kind?: TaskKind;
+  retryOf?: string;
+  priorOutcome?: string;
+  connectorCall?: ConnectorCall;
+  contextPacket?: TaskContextPacket;
+  capabilityManifest?: ExecutionCapabilityManifest;
+}
+
 export interface TaskExecutor {
   execute(
     goal: string,
@@ -87,14 +100,7 @@ export interface TaskExecutor {
     progress: (message: string) => void,
     usage?: (usage: TokenUsage) => void,
     accountUsage?: (usage: AccountUsage) => void,
-    execution?: {
-      model?: string;
-      effort?: string;
-      kind?: TaskKind;
-      retryOf?: string;
-      priorOutcome?: string;
-      connectorCall?: ConnectorCall;
-    },
+    execution?: TaskExecutionOptions,
   ): Promise<ExecutionResult>;
 }
 
