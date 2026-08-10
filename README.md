@@ -22,6 +22,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `outputs/full-agent-architecture.excalidraw` — editable system diagram; PNG/SVG previews are alongside it.
 - `outputs/*.mjs` — early local Codex app-server, Computer Use, and realtime proofs.
 - `docs/CONNECTORS.md` — connected-service architecture, safety boundary, setup, and verification.
+- `docs/EVALUATION.md` — deterministic five-canary evaluation scaffold and safe integration guide.
 
 ## Important boundaries
 

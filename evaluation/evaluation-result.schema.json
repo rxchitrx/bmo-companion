@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmo.local/schemas/evaluation-result.schema.json",
+  "title": "BMO Evaluation Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "caseId",
+    "caseName",
+    "mode",
+    "input",
+    "cachedInput",
+    "freshInput",
+    "output",
+    "reasoning",
+    "turns",
+    "toolCalls",
+    "latency",
+    "outcome",
+    "verificationEvidence"
+  ],
+  "properties": {
+    "caseId": { "type": "string", "minLength": 1 },
+    "caseName": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["deterministic-fixture", "live-runtime"] },
+    "input": { "$ref": "#/$defs/tokenMeasurement" },
+    "cachedInput": { "$ref": "#/$defs/tokenMeasurement" },
+    "freshInput": { "$ref": "#/$defs/tokenMeasurement" },
+    "output": { "$ref": "#/$defs/tokenMeasurement" },
+    "reasoning": { "$ref": "#/$defs/tokenMeasurement" },
+    "turns": { "$ref": "#/$defs/countMeasurement" },
+    "toolCalls": { "$ref": "#/$defs/countMeasurement" },
+    "latency": { "$ref": "#/$defs/latencyMeasurement" },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "verdict", "summary"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "verdict": { "enum": ["pass", "fail", "not-run"] },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verificationEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "kind", "detail"],
+        "properties": {
+          "status": { "$ref": "#/$defs/status" },
+          "kind": { "enum": ["fixture-event", "fixture-output", "runtime-event", "runtime-output"] },
+          "detail": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "status": { "enum": ["measured", "unsupported", "pending"] },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "unit"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "unit": { "enum": ["tokens", "count", "milliseconds"] },
+        "value": { "type": "number", "minimum": 0 },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "measured" } }, "required": ["status"] },
+          "then": { "required": ["value"] },
+          "else": { "not": { "required": ["value"] } }
+        }
+      ]
+    },
+    "tokenMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/measurement" },
+        { "properties": { "unit": { "const": "tokens" } } }
+      ]
+    },
+    "countMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/measurement" },
+        { "properties": { "unit": { "const": "count" } } }
+      ]
+    },
+    "latencyMeasurement": {
+      "allOf": [
+        { "$ref": "#/$defs/measurement" },
+        { "properties": { "unit": { "const": "milliseconds" } } }
+      ]
+    }
+  }
+}
