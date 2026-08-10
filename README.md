@@ -21,6 +21,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `outputs/AI_AGENT_IMPLEMENTATION_ARCHITECTURE.md` — source/reuse analysis and build sequence.
 - `outputs/full-agent-architecture.excalidraw` — editable system diagram; PNG/SVG previews are alongside it.
 - `outputs/*.mjs` — early local Codex app-server, Computer Use, and realtime proofs.
+- `docs/CONNECTORS.md` — connected-service architecture, safety boundary, setup, and verification.
 
 ## Important boundaries
 
@@ -52,3 +53,11 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+Open **Connections** in the Stage header to inspect Apple, Google Workspace,
+Todoist, GitHub, Obsidian, and secret-broker readiness. Connected-service reads
+can be requested directly in typed or realtime voice conversation; writes
+always enter the scoped Task approval lifecycle.
+
+Connector setup and proof: [docs/CONNECTORS.md](docs/CONNECTORS.md) and
+[docs/CONNECTOR-VERIFICATION.md](docs/CONNECTOR-VERIFICATION.md).

@@ -17,6 +17,18 @@ import {
   type ModelSettings,
   type TaskKind,
 } from "./model-settings.js";
+import { AppleBridge, defaultAppleBridgePaths } from "./apple-bridge.js";
+import { SpawnConnectorCommandRunner } from "./connector-command.js";
+import {
+  ConnectorGateway,
+  ConnectorRoutingTaskExecutor,
+} from "./connector-gateway.js";
+import { ConnectorToolBridge } from "./connector-tools.js";
+import { connectorCallGoal, createConnectors } from "./connectors.js";
+import {
+  ConnectorEventMonitor,
+  defaultConnectorWatches,
+} from "./connector-events.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -25,6 +37,8 @@ let memory: CompanionMemoryService;
 let modelSettings: ModelSettingsStore;
 let conversation: CodexConversationClient;
 let realtimeVoice: CodexRealtimeVoiceClient;
+let connectorGateway: ConnectorGateway;
+let connectorEvents: ConnectorEventMonitor;
 let modelCatalogPromise: ReturnType<typeof listAvailableModels> | null = null;
 const computerUseHealth = new ComputerUseHealth();
 
@@ -141,13 +155,25 @@ app.whenReady().then(async () => {
   modelSettings = new ModelSettingsStore(join(app.getPath("userData"), "model-settings.json"));
   await modelSettings.load();
   memory = new CompanionMemoryService(new JsonMemoryStore(join(app.getPath("userData"), "companion-memory.json")));
-  conversation = new CodexConversationClient(
-    () => runtime.currentTask(),
-    () => modelSettings.selection("conversation"),
+  const connectorRunner = new SpawnConnectorCommandRunner();
+  const applePaths = defaultAppleBridgePaths(currentDir, app.getPath("userData"));
+  const appleBridge = new AppleBridge(
+    connectorRunner,
+    applePaths.sourcePath,
+    applePaths.binaryPath,
+  );
+  connectorGateway = new ConnectorGateway(
+    createConnectors(connectorRunner, appleBridge),
+  );
+  const activityLedger = new JsonlActivityLedger(
+    join(app.getPath("userData"), "activity-ledger.jsonl"),
   );
   runtime = new TaskRuntime(
-    new CodexTaskExecutor(computerUseHealth),
-    new JsonlActivityLedger(join(app.getPath("userData"), "activity-ledger.jsonl")),
+    new ConnectorRoutingTaskExecutor(
+      connectorGateway,
+      new CodexTaskExecutor(computerUseHealth),
+    ),
+    activityLedger,
     (task) => {
       mainWindow?.webContents.send("task:update", task);
       void realtimeVoice?.syncTask(task);
@@ -159,6 +185,19 @@ app.whenReady().then(async () => {
     undefined,
     memory,
   );
+  const connectorTools = new ConnectorToolBridge({
+    gateway: connectorGateway,
+    startTask: (call) => runtime.create(connectorCallGoal(call), {
+      kind: "connector",
+      connectorCall: call,
+    }),
+    readCurrentTask: () => runtime.currentTask(),
+  });
+  conversation = new CodexConversationClient(
+    () => runtime.currentTask(),
+    () => modelSettings.selection("conversation"),
+    connectorTools,
+  );
   realtimeVoice = new CodexRealtimeVoiceClient(
     (goal, kind, retryOf) => {
       const selection = modelSettings.selection(kind);
@@ -168,7 +207,18 @@ app.whenReady().then(async () => {
     },
     () => runtime.cancelActive(),
     () => runtime.currentTask(),
+    connectorTools,
   );
+  connectorEvents = new ConnectorEventMonitor(
+    connectorGateway,
+    defaultConnectorWatches(),
+    async (signal) => {
+      mainWindow?.webContents.send("connector:event", signal);
+      return realtimeVoice.syncConnectorSignal(signal);
+    },
+    activityLedger,
+  );
+  connectorEvents.start();
   void runtime.restore().then((task) => {
     computerUseHealth.observeFailure(task?.summary);
   });
@@ -211,6 +261,7 @@ ipcMain.handle("conversation:send", async (_event, rawText: string) => {
 });
 
 ipcMain.handle("task:get-current", () => runtime.currentTask());
+ipcMain.handle("connectors:list", () => connectorGateway.statuses());
 
 ipcMain.handle("voice:realtime:start", async (_event, rawOfferSdp: string) => {
   const offerSdp = String(rawOfferSdp ?? "");
@@ -220,6 +271,8 @@ ipcMain.handle("voice:realtime:start", async (_event, rawOfferSdp: string) => {
   diagnosticLog("main", "ipc.voice.realtime.start", { sdp: offerSdp });
   try {
     const result = await realtimeVoice.start(offerSdp, emitRealtimeVoice);
+    await connectorEvents.flushPending((signal) =>
+      realtimeVoice.syncConnectorSignal(signal));
     diagnosticLog("main", "ipc.voice.realtime.started", {
       sessionId: result.sessionId,
       elapsedMs: Date.now() - startedAt,
@@ -300,6 +353,7 @@ ipcMain.on("diagnostic:client", (_event, payload: unknown) => {
 });
 
 app.on("before-quit", () => {
+  connectorEvents?.stop();
   diagnosticLog("main", "application.before_quit");
   void realtimeVoice.stop("application shutdown");
   conversation.stop();

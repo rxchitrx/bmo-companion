@@ -243,6 +243,80 @@ button { cursor: pointer; }
 
 .model-panel__footer small { max-width: 28rem; opacity: 0.66; }
 .model-panel__error { color: oklch(42% 0.17 28); font-weight: 750; }
+
+.connection-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(78vh, 52rem);
+  overflow: hidden;
+}
+
+.connection-panel__actions {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.connection-list {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.3rem 0.15rem 0.75rem;
+}
+
+.connection-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.7rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 25%, transparent);
+  background: color-mix(in oklab, var(--screen) 76%, transparent);
+}
+
+.connection-row > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.connection-row small {
+  opacity: 0.72;
+}
+
+.connection-row > span:last-child {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.connection-setup {
+  opacity: 1 !important;
+  font-weight: 650;
+}
+
+.connection-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.22rem;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+}
+
+.connection-dot--connected { background: #42c96a; }
+.connection-dot--setup { background: #f4c542; }
+.connection-dot--missing { background: #dc6571; }
+
+.connector-approval-preview {
+  max-width: min(48rem, 72vw);
+  max-height: 10rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--ink) 30%, transparent);
+  background: color-mix(in oklab, var(--screen) 78%, transparent);
+  font: 600 0.78rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .task-kind-select { min-height: 2rem; }
 
 .microphone-control {

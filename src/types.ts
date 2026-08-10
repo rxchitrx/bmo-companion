@@ -60,9 +60,46 @@ export interface TaskSnapshot {
   finishedAt?: string;
   retryOf?: string;
   priorOutcome?: string;
+  connectorCall?: {
+    service: string;
+    action: string;
+    arguments: Record<string, string | number | boolean>;
+    mode: "read" | "write";
+    label: string;
+  };
 }
 
-export type TaskKind = "general" | "coding" | "computer" | "browser";
+export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
+export interface ConnectorActionSummary {
+  name: string;
+  label: string;
+  description: string;
+  mode: "read" | "write";
+  parameters: Array<{
+    name: string;
+    type: "string" | "number" | "boolean";
+    description: string;
+    required?: boolean;
+  }>;
+}
+export interface ConnectorStatus {
+  id: string;
+  label: string;
+  category: "apple" | "work" | "knowledge" | "security";
+  available: boolean;
+  connected: boolean;
+  detail: string;
+  setup?: string;
+  actions: ConnectorActionSummary[];
+}
+export interface ConnectorSignal {
+  id: string;
+  service: string;
+  action: string;
+  observedAt: string;
+  summary: string;
+  notify: boolean;
+}
 export type ModelRole =
   | "conversation"
   | "general"
@@ -86,6 +123,7 @@ export interface CompanionApi {
   startRealtimeVoice(offerSdp: string): Promise<RealtimeVoiceStartResult>;
   stopRealtimeVoice(): Promise<void>;
   getCurrentTask(): Promise<TaskSnapshot | null>;
+  listConnectors(): Promise<ConnectorStatus[]>;
   startTask(goal: string, kind?: TaskKind): Promise<TaskSnapshot>;
   approveTask(taskId: string): Promise<void>;
   extendTaskApproval(taskId: string): Promise<void>;
@@ -100,6 +138,7 @@ export interface CompanionApi {
   onConversationUpdate(listener: (update: ConversationUpdate) => void): () => void;
   onRealtimeVoiceUpdate(listener: (update: RealtimeVoiceUpdate) => void): () => void;
   onTaskUpdate(listener: (task: TaskSnapshot) => void): () => void;
+  onConnectorEvent(listener: (signal: ConnectorSignal) => void): () => void;
 }
 
 export type RealtimeVoiceStatus =

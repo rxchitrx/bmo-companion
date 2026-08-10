@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("companion", {
   startRealtimeVoice: (offerSdp) => ipcRenderer.invoke("voice:realtime:start", offerSdp),
   stopRealtimeVoice: () => ipcRenderer.invoke("voice:realtime:stop"),
   getCurrentTask: () => ipcRenderer.invoke("task:get-current"),
+  listConnectors: () => ipcRenderer.invoke("connectors:list"),
   startTask: (goal, kind) => ipcRenderer.invoke("task:start", { goal, kind }),
   approveTask: (taskId) => ipcRenderer.invoke("task:approve", taskId),
   extendTaskApproval: (taskId) => ipcRenderer.invoke("task:extend-approval", taskId),
@@ -33,5 +34,10 @@ contextBridge.exposeInMainWorld("companion", {
     const handler = (_event, task) => listener(task);
     ipcRenderer.on("task:update", handler);
     return () => ipcRenderer.removeListener("task:update", handler);
+  },
+  onConnectorEvent: (listener) => {
+    const handler = (_event, signal) => listener(signal);
+    ipcRenderer.on("connector:event", handler);
+    return () => ipcRenderer.removeListener("connector:event", handler);
   },
 });

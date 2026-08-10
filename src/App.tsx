@@ -3,6 +3,8 @@ import type {
   AccountUsage,
   CompanionState,
   ConversationUpdate,
+  ConnectorSignal,
+  ConnectorStatus,
   ModelCatalogEntry,
   ModelRole,
   ModelSettings,
@@ -126,11 +128,24 @@ export function App() {
   const [modelsOpen, setModelsOpen] = useState(false);
   const [modelsSaving, setModelsSaving] = useState(false);
   const [modelsError, setModelsError] = useState("");
+  const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [connectorsLoading, setConnectorsLoading] = useState(false);
+  const [ambientNotice, setAmbientNotice] = useState("");
   const [taskKind, setTaskKind] = useState<TaskKind>("general");
   const sessionRef = useRef<CodexRealtimeVoiceSession | null>(null);
   const lastSpokenRef = useRef("");
   const lastTaskStatusRef = useRef<TaskSnapshot["status"] | null>(null);
   const [recall, setRecall] = useState<RecallAnswer | null>(null);
+
+  const refreshConnectors = async () => {
+    setConnectorsLoading(true);
+    try {
+      setConnectors(await window.companion.listConnectors());
+    } finally {
+      setConnectorsLoading(false);
+    }
+  };
 
   useEffect(() => {
     clientDiagnostic("ui", "application.mounted", {
@@ -260,6 +275,27 @@ export function App() {
       clientDiagnostic("ui", "application.unmounted");
     };
   }, []);
+
+  useEffect(() => window.companion.onConnectorEvent((signal: ConnectorSignal) => {
+    const label = signal.service === "google"
+      ? "Gmail"
+      : signal.service === "calendar"
+        ? "Calendar"
+        : signal.service === "reminders"
+          ? "Reminders"
+          : signal.service === "github"
+            ? "GitHub"
+            : signal.service === "todoist"
+              ? "Todoist"
+              : signal.service;
+    setAmbientNotice(`I noticed a new ${label} update. Ask me for the details.`);
+    clientDiagnostic("ui.connectors", "ambient_update.received", {
+      signalId: signal.id,
+      service: signal.service,
+      action: signal.action,
+      notify: signal.notify,
+    });
+  }), []);
 
   useEffect(() => {
     void Promise.all([
@@ -577,7 +613,7 @@ export function App() {
     conversation?.assistantText ||
     recall?.answer ||
     (conversationBusy ? latestProgress : undefined) ||
-    (taskActive ? task?.summary || latestProgress : latestProgress);
+    (taskActive ? task?.summary || latestProgress : ambientNotice || latestProgress);
 
   return (
     <main className={`stage stage--${state}`} data-state={state}>
@@ -610,6 +646,17 @@ export function App() {
           />
         </div>
         <div className="voice-controls">
+          <button
+            type="button"
+            className="button-models"
+            onClick={() => {
+              setConnectorsOpen(true);
+              void refreshConnectors();
+            }}
+            aria-label="View connected services"
+          >
+            Connections
+          </button>
           <button
             type="button"
             className="button-models"
@@ -741,6 +788,45 @@ export function App() {
         </section>
       )}
 
+      {connectorsOpen && (
+        <section className="model-panel connection-panel" aria-label="BMO connections">
+          <div className="model-panel__header">
+            <div>
+              <small>CONNECTIONS</small>
+              <strong>Services BMO can use by voice</strong>
+            </div>
+            <div className="connection-panel__actions">
+              <button type="button" className="button-text" onClick={() => void refreshConnectors()}>
+                {connectorsLoading ? "Checking…" : "Refresh"}
+              </button>
+              <button type="button" className="button-text" onClick={() => setConnectorsOpen(false)}>Close</button>
+            </div>
+          </div>
+          <div className="connection-list">
+            {connectors.map((connector) => (
+              <article className="connection-row" key={connector.id}>
+                <span
+                  className={`connection-dot connection-dot--${connector.connected ? "connected" : connector.available ? "setup" : "missing"}`}
+                  aria-hidden="true"
+                />
+                <div>
+                  <strong>{connector.label}</strong>
+                  <small>{connector.detail}</small>
+                  {!connector.connected && connector.setup && <small className="connection-setup">{connector.setup}</small>}
+                </div>
+                <span>{connector.connected ? "Connected" : connector.available ? "Setup needed" : "Not installed"}</span>
+              </article>
+            ))}
+            {!connectors.length && (
+              <p>{connectorsLoading ? "Checking local services…" : "No connector status received."}</p>
+            )}
+          </div>
+          <div className="model-panel__footer">
+            <small>Reads happen directly. Every external write becomes one scoped, cancellable Task and reports its outcome back into the live voice session.</small>
+          </div>
+        </section>
+      )}
+
       <section className="console" aria-live="polite">
         <div className="console-screen">
           <div className="eyes" aria-hidden="true">
@@ -757,8 +843,13 @@ export function App() {
         <section className="approval-panel">
           <div>
             <small>ONE TASK · UP TO TWO HOURS</small>
-            <strong>{task.status === "waiting_approval" ? "Let Codex control this Mac for this task?" : task.summary}</strong>
+            <strong>{task.status === "waiting_approval" ? task.kind === "connector" ? "Allow this connected-service action?" : "Let Codex control this Mac for this task?" : task.summary}</strong>
             <p>{task.goal}</p>
+            {task.status === "waiting_approval" && task.connectorCall && (
+              <pre className="connector-approval-preview">
+                {JSON.stringify(task.connectorCall.arguments, null, 2)}
+              </pre>
+            )}
           </div>
           <div className="approval-actions">
             <button className="button-text" onClick={() => window.companion.denyTask(task.id)}>

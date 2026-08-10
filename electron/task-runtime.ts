@@ -2,6 +2,9 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import type { ConnectorCall } from "./connector-types.js";
+
+export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
 
 export type TaskStatus =
   | "waiting_approval"
@@ -49,13 +52,14 @@ export interface TaskSnapshot {
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
   timing?: TaskTiming;
-  kind?: "general" | "coding" | "computer" | "browser";
+  kind?: TaskKind;
   model?: string;
   effort?: string;
   createdAt?: string;
   finishedAt?: string;
   retryOf?: string;
   priorOutcome?: string;
+  connectorCall?: ConnectorCall;
 }
 
 export interface StoredTask {
@@ -84,11 +88,12 @@ export interface TaskExecutor {
     usage?: (usage: TokenUsage) => void,
     accountUsage?: (usage: AccountUsage) => void,
     execution?: {
-      model: string;
-      effort: string;
-      kind?: "general" | "coding" | "computer" | "browser";
+      model?: string;
+      effort?: string;
+      kind?: TaskKind;
       retryOf?: string;
       priorOutcome?: string;
+      connectorCall?: ConnectorCall;
     },
   ): Promise<ExecutionResult>;
 }
@@ -222,11 +227,12 @@ export class TaskRuntime {
     goal: string,
     options: {
       directiveId?: string;
-      kind?: "general" | "coding" | "computer" | "browser";
+      kind?: TaskKind;
       model?: string;
       effort?: string;
       retryOf?: string;
       priorOutcome?: string;
+      connectorCall?: ConnectorCall;
     } = {},
   ): Promise<TaskSnapshot> {
     diagnosticLog("task.runtime", "create.requested", {
@@ -238,6 +244,14 @@ export class TaskRuntime {
       createdAt: this.now().toISOString(),
       retryOf: options.retryOf,
       priorOutcome: options.priorOutcome,
+      connectorCall: options.connectorCall
+        ? {
+            service: options.connectorCall.service,
+            action: options.connectorCall.action,
+            mode: options.connectorCall.mode,
+            argumentNames: Object.keys(options.connectorCall.arguments),
+          }
+        : undefined,
       currentTaskId: this.current?.task.id,
       currentStatus: this.current?.task.status,
     });
@@ -246,7 +260,7 @@ export class TaskRuntime {
         currentTaskId: this.current.task.id,
         currentStatus: this.current.task.status,
       });
-      throw new Error("A Mac-control Task is already active.");
+      throw new Error("A Task is already active.");
     }
     const task: TaskSnapshot = {
       id: randomUUID(),
@@ -261,6 +275,7 @@ export class TaskRuntime {
       createdAt: this.now().toISOString(),
       retryOf: options.retryOf,
       priorOutcome: options.priorOutcome,
+      connectorCall: options.connectorCall,
     };
     this.current = { task, reminderIndex: 0, nextReminderAt: this.afterMinutes(REMINDER_MINUTES[0]), executionSurfaceAvailable: true };
     await this.persist("task.created");
@@ -527,11 +542,14 @@ export class TaskRuntime {
           void this.store.save(stored);
           this.publish();
         },
-        stored.task.model && stored.task.effort
+        stored.task.model || stored.task.effort || stored.task.connectorCall
           ? {
               model: stored.task.model,
               effort: stored.task.effort,
               kind: stored.task.kind,
+              ...(stored.task.connectorCall
+                ? { connectorCall: stored.task.connectorCall }
+                : {}),
               ...(stored.task.retryOf
                 ? { retryOf: stored.task.retryOf }
                 : {}),
@@ -711,7 +729,11 @@ export class TaskRuntime {
     stored.task.approvalExpiresAt = new Date(granted.getTime() + APPROVAL_MAX_MS).toISOString();
     stored.reminderIndex = 0; stored.nextReminderAt = undefined;
     stored.task.status = "running"; stored.task.state = "thinking"; stored.task.recoveryRequired = false;
-    stored.task.progress.push("Approved for this Task. Preparing Codex.");
+    stored.task.progress.push(
+      stored.task.kind === "connector"
+        ? "Approved for this Task. Preparing the connected-service action."
+        : "Approved for this Task. Preparing Codex.",
+    );
     diagnosticLog("task.runtime", "approval.granted", {
       taskId: stored.task.id,
       approvalGrantedAt: stored.approvalGrantedAt,
