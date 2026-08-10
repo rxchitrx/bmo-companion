@@ -16,6 +16,9 @@ export interface ContextSegmentInput {
   source: string;
   provenance: ContextProvenance;
   value?: unknown;
+  inclusionReason?: string;
+  budgetChars?: number;
+  truncated?: boolean;
 }
 
 export interface ContextSegmentMeasurement {
@@ -27,6 +30,17 @@ export interface ContextSegmentMeasurement {
   utf8Bytes?: number;
   sha256?: string;
   itemCount?: number;
+  inclusionReason?: string;
+  budgetChars?: number;
+  truncated?: boolean;
+}
+
+function metadata(input: ContextSegmentInput) {
+  return {
+    ...(input.inclusionReason ? { inclusionReason: input.inclusionReason } : {}),
+    ...(input.budgetChars !== undefined ? { budgetChars: input.budgetChars } : {}),
+    ...(input.truncated !== undefined ? { truncated: input.truncated } : {}),
+  };
 }
 
 function serialize(value: unknown) {
@@ -44,6 +58,7 @@ export function measureContextSegment(
       source: input.source,
       provenance: input.provenance,
       measurement: "unknown-runtime",
+      ...metadata(input),
     };
   }
   try {
@@ -57,6 +72,7 @@ export function measureContextSegment(
       utf8Bytes: Buffer.byteLength(serialized, "utf8"),
       sha256: createHash("sha256").update(serialized).digest("hex"),
       ...(Array.isArray(input.value) ? { itemCount: input.value.length } : {}),
+      ...metadata(input),
     };
   } catch {
     return {
@@ -64,6 +80,7 @@ export function measureContextSegment(
       source: input.source,
       provenance: input.provenance,
       measurement: "unavailable",
+      ...metadata(input),
     };
   }
 }

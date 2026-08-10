@@ -13,11 +13,17 @@ test("context measurements expose size and provenance without raw content", () =
     source: "conversation:send",
     provenance: "user",
     value: raw,
+    inclusionReason: "Required for the current Task.",
+    budgetChars: 20_000,
+    truncated: false,
   });
   assert.equal(measured.measurement, "exact-visible");
   assert.equal(measured.chars, raw.length);
   assert.equal(measured.utf8Bytes, Buffer.byteLength(raw));
   assert.equal(measured.sha256?.length, 64);
+  assert.equal(measured.inclusionReason, "Required for the current Task.");
+  assert.equal(measured.budgetChars, 20_000);
+  assert.equal(measured.truncated, false);
   assert.doesNotMatch(JSON.stringify(measured), /private prompt/);
 });
 
