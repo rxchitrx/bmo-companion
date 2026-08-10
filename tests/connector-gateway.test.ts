@@ -57,7 +57,10 @@ function toolCall(tool: string, args: Record<string, unknown>) {
 }
 
 test("connector discovery is intent-scoped and reports setup state", async () => {
-  const gateway = new ConnectorGateway([fixture()]);
+  const gateway = new ConnectorGateway(
+    [fixture()],
+    new Set(["fixture.read", "fixture.write"]),
+  );
   const result = await gateway.discover("read");
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].actions.map((action) => action.name), ["read"]);

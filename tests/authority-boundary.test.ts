@@ -349,7 +349,10 @@ test("realtime voice can discover, read, and request approval for connected serv
       },
     ],
   };
-  const gateway = new ConnectorGateway([connector]);
+  const gateway = new ConnectorGateway(
+    [connector],
+    new Set(["fixture.read", "fixture.write"]),
+  );
   let requestedTask: TaskSnapshot | null = null;
   const tools = new ConnectorToolBridge({
     gateway,

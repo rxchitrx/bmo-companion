@@ -16,7 +16,7 @@ export const CONNECTOR_DYNAMIC_TOOLS = [
       properties: {
         query: {
           type: "string",
-          description: "Short capability query, such as calendar, email, notes, music, files, GitHub, or tasks. Use an empty string to list everything.",
+          description: "Short task-relevant capability query, such as today's calendar, unread email, a GitHub pull request, or Todoist tasks. Empty queries return no service schemas.",
         },
       },
       required: ["query"],
@@ -112,7 +112,6 @@ export class ConnectorToolBridge {
       const query = typeof args.query === "string" ? args.query : "";
       const services = await this.options.gateway.discover(query);
       diagnosticLog("connectors.tools", "discovered", {
-        query,
         serviceCount: services.length,
         actionCount: services.reduce((sum, service) => sum + service.actions.length, 0),
       });
