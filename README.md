@@ -23,6 +23,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `outputs/*.mjs` — early local Codex app-server, Computer Use, and realtime proofs.
 - `docs/CONNECTORS.md` — connected-service architecture, safety boundary, setup, and verification.
 - `docs/EVALUATION.md` — deterministic five-canary evaluation scaffold and safe integration guide.
+- `docs/PERMISSIONS-LIFECYCLE.md` — scoped approval, pause/resume, recovery, expiry, and single-worker authority contract.
 - `electron/context-packet.ts` — bounded Context Packet selection and manifests for managed Tasks.
 - `docs/CONTEXT-PACKETS.md` — Context Packet inclusion, budget, history, and privacy boundaries.
 - `reliability_lab/README.md` — offline Python baseline-versus-candidate replay analysis.

@@ -7,11 +7,39 @@ import {
   type KernelLifecycleEvent,
 } from "../electron/execution-kernel.ts";
 import {
+  allowTaskAuthority,
+  createTaskAuthorityScope,
+} from "../electron/permission-lifecycle.ts";
+import {
   TaskRuntime,
   type ActivityLedger,
   type TaskExecutionOptions,
   type TaskExecutor,
 } from "../electron/task-runtime.ts";
+
+const AUTHORITY_NOW = new Date("2026-01-01T09:00:00.000Z");
+
+function approvedExecution(
+  goal: string,
+  options: Pick<TaskExecutionOptions, "kind" | "connectorCall" | "model" | "effort"> = {},
+): TaskExecutionOptions {
+  const taskId = `task-${options.kind ?? "general"}`;
+  const scope = createTaskAuthorityScope({
+    taskId,
+    goal,
+    taskKind: options.kind,
+    connectorCall: options.connectorCall,
+  });
+  return {
+    ...options,
+    taskId,
+    authority: allowTaskAuthority(
+      scope,
+      AUTHORITY_NOW,
+      new Date("2026-01-01T11:00:00.000Z"),
+    ),
+  };
+}
 
 function connectorManifest(id = "github.comment_issue"): CapabilityManifest {
   return {
@@ -52,6 +80,7 @@ test("the production kernel runs one scoped worker through the complete typed fl
   };
   const kernel = new MinimalExecutionKernel(worker, {
     onEvent: (event) => events.push(event),
+    now: () => AUTHORITY_NOW,
   });
 
   const result = await kernel.execute(
@@ -60,7 +89,11 @@ test("the production kernel runs one scoped worker through the complete typed fl
     (message) => progress.push(message),
     undefined,
     undefined,
-    { kind: "coding", model: "fixture", effort: "low" },
+    approvedExecution("Fix the focused repository test", {
+      kind: "coding",
+      model: "fixture",
+      effort: "low",
+    }),
   );
 
   assert.equal(workerCalls, 1);
@@ -75,12 +108,13 @@ test("the production kernel runs one scoped worker through the complete typed fl
     "kernel.started",
     "kernel.context_prepared",
     "kernel.capabilities_selected",
+    "kernel.permission_decided",
     "kernel.worker_started",
     "kernel.worker_progress",
     "kernel.worker_completed",
     "kernel.outcome_verified",
   ]);
-  assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.doesNotMatch(
     JSON.stringify(events.find((event) => event.type === "kernel.worker_progress")),
     /private worker milestone/,
@@ -109,7 +143,16 @@ test("connector Tasks bind Task 4 selection to only the exact scoped worker call
       selected.selectedCapabilityIds.push("github.view_issue");
       return selected;
     },
+    now: () => AUTHORITY_NOW,
   });
+
+  const connectorCall = {
+    service: "github",
+    action: "comment_issue",
+    arguments: { repo: "owner/repo", issue: 1, body: "approved" },
+    mode: "write" as const,
+    label: "GitHub",
+  };
 
   const result = await kernel.execute(
     "Post the approved GitHub issue comment",
@@ -117,16 +160,10 @@ test("connector Tasks bind Task 4 selection to only the exact scoped worker call
     () => {},
     undefined,
     undefined,
-    {
+    approvedExecution("Post the approved GitHub issue comment", {
       kind: "connector",
-      connectorCall: {
-        service: "github",
-        action: "comment_issue",
-        arguments: { repo: "owner/repo", issue: 1, body: "approved" },
-        mode: "write",
-        label: "GitHub",
-      },
-    },
+      connectorCall,
+    }),
   );
 
   assert.equal(workerCalls, 1);
@@ -169,6 +206,7 @@ test("a missing selected connector capability fails closed before worker executi
   };
   const kernel = new MinimalExecutionKernel(worker, {
     selectConnectorCapabilities: () => connectorManifest("github.view_issue"),
+    now: () => AUTHORITY_NOW,
   });
 
   await assert.rejects(
@@ -178,7 +216,7 @@ test("a missing selected connector capability fails closed before worker executi
       () => {},
       undefined,
       undefined,
-      {
+      approvedExecution("Post a comment", {
         kind: "connector",
         connectorCall: {
           service: "github",
@@ -187,7 +225,7 @@ test("a missing selected connector capability fails closed before worker executi
           mode: "write",
           label: "GitHub",
         },
-      },
+      }),
     ),
     /omitted github\.comment_issue/,
   );
@@ -226,7 +264,14 @@ test("kernel diagnostics contain context metadata but not raw Task values", asyn
         report("private progress 61409");
         return { summary: privateSummary, verified: true };
       },
-    }).execute(privateGoal, new AbortController().signal, () => {});
+    }, { now: () => AUTHORITY_NOW }).execute(
+      privateGoal,
+      new AbortController().signal,
+      () => {},
+      undefined,
+      undefined,
+      approvedExecution(privateGoal),
+    );
   } finally {
     console.log = priorLog;
   }
@@ -246,10 +291,20 @@ test("worker failures are emitted once and are never retried by the kernel", asy
       calls += 1;
       throw new TypeError("private worker failure");
     },
-  }, { onEvent: (event) => events.push(event) });
+  }, {
+    onEvent: (event) => events.push(event),
+    now: () => AUTHORITY_NOW,
+  });
 
   await assert.rejects(
-    kernel.execute("Run one worker", new AbortController().signal, () => {}),
+    kernel.execute(
+      "Run one worker",
+      new AbortController().signal,
+      () => {},
+      undefined,
+      undefined,
+      approvedExecution("Run one worker"),
+    ),
     /private worker failure/,
   );
   assert.equal(calls, 1);
