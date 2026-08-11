@@ -7,12 +7,17 @@ import {
 } from "./context-packet.js";
 import { recordContextSnapshot } from "./context-telemetry.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import {
+  ExecutionGuardrailTracker,
+  type ExecutionBudgets,
+} from "./execution-guardrails.js";
 import type {
   ExecutionResult,
   TaskExecutionOptions,
   TaskExecutor,
   TokenUsage,
   AccountUsage,
+  ExecutionGuardrailOutcome,
 } from "./task-runtime.js";
 
 export const EXECUTION_KERNEL_VERSION = 1 as const;
@@ -79,6 +84,11 @@ export type KernelLifecycleEventData =
   | { type: "kernel.worker_completed"; verifiedClaim: boolean; reconciliationRequired: boolean }
   | { type: "kernel.outcome_verified"; outcome: VerifiedOutcome }
   | { type: "kernel.outcome_unverified"; outcome: UnverifiedOutcome }
+  | {
+      type: "kernel.guardrail_triggered";
+      outcome: ExecutionGuardrailOutcome;
+      counters: ReturnType<ExecutionGuardrailTracker["snapshot"]>;
+    }
   | { type: "kernel.failed"; errorName: string };
 
 export type KernelLifecycleEvent = KernelEventBase & KernelLifecycleEventData;
@@ -89,6 +99,7 @@ export interface MinimalExecutionKernelOptions {
     requestedCapabilityIds: readonly string[];
   }) => CapabilityManifest;
   onEvent?: (event: KernelLifecycleEvent) => void;
+  budgets?: Partial<ExecutionBudgets>;
 }
 
 export function createExecutionCapabilityManifest(
@@ -191,6 +202,13 @@ export class MinimalExecutionKernel implements TaskExecutor {
   ): Promise<ExecutionResult> {
     const runId = randomUUID();
     let sequence = 0;
+    const guardrails = new ExecutionGuardrailTracker(this.options.budgets);
+    const workerController = new AbortController();
+    let guardrailOutcome: ExecutionGuardrailOutcome | undefined;
+    let resolveGuardrail: ((result: ExecutionResult) => void) | undefined;
+    const guardrailResult = new Promise<ExecutionResult>((resolve) => {
+      resolveGuardrail = resolve;
+    });
     const emit = (event: KernelLifecycleEventData) => {
       const lifecycleEvent = {
         ...event,
@@ -211,6 +229,40 @@ export class MinimalExecutionKernel implements TaskExecutor {
           errorName: error instanceof Error ? error.name : "unknown",
         });
       }
+    };
+
+    const stopForGuardrail = (outcome: ExecutionGuardrailOutcome | undefined) => {
+      if (!outcome || guardrailOutcome) return;
+      guardrailOutcome = outcome;
+      const counters = guardrails.snapshot();
+      emit({ type: "kernel.guardrail_triggered", outcome, counters });
+      workerController.abort();
+      resolveGuardrail?.({
+        summary: outcome.summary,
+        verified: false,
+        guardrailOutcome: outcome,
+      });
+    };
+    const observeBudget = (
+      event: Parameters<ExecutionGuardrailTracker["observe"]>[0],
+    ) => stopForGuardrail(guardrails.observe(event));
+    const stopOnParentAbort = () => workerController.abort();
+    if (signal.aborted) workerController.abort();
+    else signal.addEventListener("abort", stopOnParentAbort, { once: true });
+    const timeLimit = setTimeout(
+      () => stopForGuardrail(guardrails.expireTime()),
+      guardrails.budgets.maxDurationMs,
+    );
+
+    const finishGuardrail = (outcome: ExecutionGuardrailOutcome) => {
+      const result: ExecutionResult = {
+        summary: outcome.summary,
+        verified: false,
+        guardrailOutcome: outcome,
+      };
+      const normalized = executionResultToOutcome(result);
+      emit({ type: "kernel.outcome_unverified", outcome: normalized as UnverifiedOutcome });
+      return result;
     };
 
     emit({ type: "kernel.started", taskKind: execution?.kind ?? "general" });
@@ -286,18 +338,35 @@ export class MinimalExecutionKernel implements TaskExecutor {
         throw new Error(`Selected capability manifest omitted ${connectorCapabilityId}.`);
       }
 
+      if (connectorCapabilityId) {
+        observeBudget({ type: "tool-started", fingerprint: "connector-task" });
+        if (guardrailOutcome) return finishGuardrail(guardrailOutcome);
+      }
+
       emit({ type: "kernel.worker_started", workerId: capabilityManifest.worker.id });
-      const result = await this.worker.execute(
+      const workerResult = this.worker.execute(
         contextPacket.purpose.objective,
-        signal,
+        workerController.signal,
         (message) => {
           emit({ type: "kernel.worker_progress", message: textMeta(message) });
           progress(message);
         },
-        usage,
+        (latestUsage) => {
+          usage?.(latestUsage);
+          observeBudget({ type: "usage", totalTokens: latestUsage.totalTokens });
+        },
         accountUsage,
-        { ...execution, contextPacket, capabilityManifest },
+        {
+          ...execution,
+          contextPacket,
+          capabilityManifest,
+          budgetObserver: observeBudget,
+        },
       );
+      if (guardrailOutcome) return finishGuardrail(guardrailOutcome);
+      const result = await Promise.race([workerResult, guardrailResult]);
+      if (guardrailOutcome) return finishGuardrail(guardrailOutcome);
+      if (result.guardrailOutcome) return finishGuardrail(result.guardrailOutcome);
       emit({
         type: "kernel.worker_completed",
         verifiedClaim: result.verified,
@@ -313,11 +382,15 @@ export class MinimalExecutionKernel implements TaskExecutor {
         verified: outcome.status === "verified",
       };
     } catch (error) {
+      if (guardrailOutcome) return finishGuardrail(guardrailOutcome);
       emit({
         type: "kernel.failed",
         errorName: error instanceof Error ? error.name : "unknown",
       });
       throw error;
+    } finally {
+      clearTimeout(timeLimit);
+      signal.removeEventListener("abort", stopOnParentAbort);
     }
   }
 }

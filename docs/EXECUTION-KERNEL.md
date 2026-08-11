@@ -13,6 +13,27 @@ approved Tasks:
 status and Activity Ledger writes. The kernel does not grant authority, retry a
 worker, create Tasks, change lifecycle policy, or publish UI state.
 
+## Cost and runaway guardrails
+
+Every kernel run has fixed positive ceilings for total tokens, elapsed time,
+tool calls and turns. It also detects consecutive repeated structural tool
+shapes and repeated failures. Production defaults are 250,000 total tokens,
+five minutes, 32 tool calls, four turns, three matching action shapes and three
+matching failures. Invalid overrides fall back to those defaults.
+
+The first exhausted guardrail aborts the one scoped worker and wins
+deterministically. Token exhaustion returns `summarize`, time exhaustion returns
+`stop`, and tool/turn/loop/failure exhaustion returns `needs-decision`. These are
+kernel outcomes only: `TaskRuntime` continues to own Task status and authority,
+and the kernel never retries or changes verification policy.
+
+Token counts come from the existing cumulative usage callback. Codex reports
+turn starts and non-message protocol items through an execution-only observer.
+Loop/failure keys contain only structural item type/server/tool identity and are
+never included in events or diagnostics. Guardrail telemetry contains limits,
+counters, reason and disposition—not goals, prompts, tool arguments, results or
+failure text.
+
 ## Capability binding
 
 Codex Tasks receive the bounded capability reference already selected by their
@@ -62,5 +83,5 @@ from the validated connector result.
   execution manifest rather than rebuilding broader ambient context.
 - New connector actions must remain explicitly allowlisted by Task 4 before a
   connector Task can reach its worker.
-- Live canary wiring, cost guardrails, Python evaluation changes, UI additions
+- Live canary wiring, Python evaluation changes, UI additions
   and lifecycle-policy extensions remain separate future work.

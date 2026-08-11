@@ -106,6 +106,12 @@ function itemDiagnostic(item: Record<string, any> | undefined) {
   };
 }
 
+function budgetItemFingerprint(item: Record<string, any> | undefined) {
+  return [item?.type ?? "unknown", item?.server ?? "", item?.tool ?? item?.name ?? ""]
+    .map(String)
+    .join(":");
+}
+
 function executionDiagnostic(execution: TaskExecutionOptions | undefined) {
   if (!execution) return undefined;
   return {
@@ -390,11 +396,24 @@ export class CodexTaskExecutor implements TaskExecutor {
       } else if (message.method === "item/started") {
         const type = params.item?.type;
         lifecycle.itemStarted(params.item ?? {});
-        if (type && !["agentMessage", "reasoning"].includes(type)) progress(`Codex started ${type}.`);
+        if (type && !["agentMessage", "reasoning"].includes(type)) {
+          execution?.budgetObserver?.({
+            type: "tool-started",
+            fingerprint: budgetItemFingerprint(params.item),
+          });
+          progress(`Codex started ${type}.`);
+        }
       } else if (message.method === "item/completed") {
         const item = params.item;
         lifecycle.itemCompleted(item ?? {});
         if (item?.type === "agentMessage" && item.text) finalText = item.text;
+        if (item?.type && !["agentMessage", "reasoning"].includes(item.type)) {
+          execution?.budgetObserver?.({
+            type: "tool-completed",
+            fingerprint: budgetItemFingerprint(item),
+            failed: item.status === "failed",
+          });
+        }
         if (item?.status === "failed") failedTool = true;
       } else if (message.method === "turn/completed") {
         lifecycle.turnCompleted();
@@ -590,6 +609,10 @@ UNVERIFIED: when evidence is missing, the goal is blocked, or an attempt failed.
           text: workerPrompt,
         }],
       };
+      execution?.budgetObserver?.({ type: "turn-started" });
+      if (signal.aborted) {
+        throw new Error("Execution stopped before another Codex turn could start.");
+      }
       recordContextSnapshot(
         "codex.task",
         "turn.start",
