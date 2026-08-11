@@ -88,6 +88,29 @@ test("the runner fails a canary when its deterministic contract is violated", as
   assert.match(result.verificationEvidence[0].detail, /Output mismatch/);
 });
 
+test("ordinary live conversation uses a bounded greeting contract", async () => {
+  const canary = canaryCases.find((item) => item.id === "ordinary-conversation")!;
+  const runWithOutput = (outputText: string): CanaryAdapter => ({
+    mode: "live-runtime",
+    async run() {
+      return {
+        outputText,
+        events: ["turn-complete"],
+        toolCallNames: [],
+        runtimeOutcome: "verified",
+      };
+    },
+  });
+
+  const [conciseGreeting] = await runCanaries([canary], runWithOutput("Hello!"));
+  assert.equal(conciseGreeting.outcome.verdict, "pass");
+  assert.match(conciseGreeting.verificationEvidence[0]?.detail ?? "", /short single-line greeting/);
+
+  const [unrelatedOutput] = await runCanaries([canary], runWithOutput("The task is complete."));
+  assert.equal(unrelatedOutput.outcome.verdict, "fail");
+  assert.match(unrelatedOutput.verificationEvidence[0]?.detail ?? "", /Output mismatch/);
+});
+
 test("result validation rejects a measured field without a value", async () => {
   const [result] = await runCanaries([canaryCases[0]], deterministicFixtureAdapter);
   const invalid: EvaluationResult = {

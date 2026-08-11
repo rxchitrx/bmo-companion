@@ -4,8 +4,36 @@ import type {
   CanaryObservation,
   EvaluationResult,
   Measurement,
+  CanaryExpectation,
   VerificationEvidence,
 } from "./types";
+
+const SHORT_GREETING_MAX_CHARS = 80;
+
+function matchesShortGreeting(outputText: string): boolean {
+  const normalized = outputText.trim();
+  return normalized.length > 0 &&
+    normalized.length <= SHORT_GREETING_MAX_CHARS &&
+    !/[\r\n]/.test(normalized) &&
+    /^(?:hello|hi|hey)\b/i.test(normalized) &&
+    /[.!?]$/.test(normalized);
+}
+
+function outputContractDescription(expectation: CanaryExpectation): string | undefined {
+  if (expectation.outputExact !== undefined) {
+    return `exactly ${JSON.stringify(expectation.outputExact)}`;
+  }
+  if (expectation.outputContract === "short-greeting") {
+    return `a short single-line greeting (<=${SHORT_GREETING_MAX_CHARS} chars, starts with hello/hi/hey, terminal punctuation)`;
+  }
+  return undefined;
+}
+
+function outputMatches(expectation: CanaryExpectation, outputText: string): boolean {
+  if (expectation.outputExact !== undefined) return outputText === expectation.outputExact;
+  if (expectation.outputContract === "short-greeting") return matchesShortGreeting(outputText);
+  return true;
+}
 
 const missingTokens = (
   field: string,
@@ -43,19 +71,20 @@ function verify(
   const evidence: VerificationEvidence[] = [];
   const expected = canary.expectation;
 
-  if (expected.outputExact !== undefined) {
+  if (outputContractDescription(expected) !== undefined) {
     const status = observation.outputText === undefined && mode === "live-runtime"
       ? "pending"
       : "measured";
+    const description = outputContractDescription(expected)!;
     evidence.push({
       status,
       kind: outputKind,
       detail:
         observation.outputText === undefined
           ? "Runtime output is awaiting live telemetry."
-          : observation.outputText === expected.outputExact
-          ? `Output matched ${JSON.stringify(expected.outputExact)}.`
-          : `Output mismatch: expected ${JSON.stringify(expected.outputExact)}, received ${JSON.stringify(observation.outputText)}.`,
+          : outputMatches(expected, observation.outputText)
+          ? `Output matched ${description}.`
+          : `Output mismatch: expected ${description}, received ${JSON.stringify(observation.outputText)}.`,
     });
   }
 
@@ -117,7 +146,8 @@ function passed(canary: CanaryCase, observation: CanaryObservation): boolean {
   if (observation.skipped || observation.runtimeOutcome === "unverified") return false;
   const expected = canary.expectation;
   return (
-    (expected.outputExact === undefined || observation.outputText === expected.outputExact) &&
+    (outputContractDescription(expected) === undefined ||
+      (observation.outputText !== undefined && outputMatches(expected, observation.outputText))) &&
     (expected.maxToolCalls === undefined || observation.toolCallNames.length <= expected.maxToolCalls) &&
     (expected.requiredEvents ?? []).every((event) => observation.events.includes(event)) &&
     (expected.forbiddenEvents ?? []).every((event) => !observation.events.includes(event)) &&

@@ -13,7 +13,7 @@ export const canaryCases: readonly CanaryCase[] = [
     name: "Ordinary conversation",
     prompt: "Say hello in one short sentence. Do not call tools.",
     purpose: "Protect normal conversation from unnecessary tool use or extra turns.",
-    expectation: { outputExact: "Hello! How can I help?", maxToolCalls: 0 },
+    expectation: { outputContract: "short-greeting", maxToolCalls: 0 },
   },
   {
     id: "approval-pause",

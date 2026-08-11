@@ -37,8 +37,12 @@ export interface EvaluationResult {
   verificationEvidence: VerificationEvidence[];
 }
 
+export type CanaryOutputContract = "short-greeting";
+
 export interface CanaryExpectation {
   outputExact?: string;
+  /** A bounded semantic shape for live-model output with valid wording variance. */
+  outputContract?: CanaryOutputContract;
   maxToolCalls?: number;
   requiredEvents?: string[];
   forbiddenEvents?: string[];
