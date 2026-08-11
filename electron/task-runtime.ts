@@ -5,6 +5,10 @@ import { diagnosticLog, textMeta } from "./diagnostics.js";
 import type { ConnectorCall } from "./connector-types.js";
 import type { TaskContextPacket } from "./context-packet.js";
 import type { ExecutionCapabilityManifest } from "./execution-kernel.js";
+import type {
+  VerificationDecision,
+  VerificationEvidence,
+} from "./outcome-verifier.js";
 
 export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
 
@@ -76,6 +80,8 @@ export interface ExecutionResult {
   summary: string;
   verified: boolean;
   reconciliationRequired?: boolean;
+  verificationEvidence?: VerificationEvidence[];
+  verificationDecision?: VerificationDecision;
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
   timing?: TaskTiming;

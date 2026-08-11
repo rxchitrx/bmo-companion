@@ -7,6 +7,13 @@ import {
 } from "./context-packet.js";
 import { recordContextSnapshot } from "./context-telemetry.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import {
+  boundVerificationEvidence,
+  defaultOutcomeVerifier,
+  type OutcomeVerifier,
+  type VerificationDecision,
+  type VerificationEvidence,
+} from "./outcome-verifier.js";
 import type {
   ExecutionResult,
   TaskExecutionOptions,
@@ -41,14 +48,15 @@ export interface ExecutionCapabilityManifest {
 export interface VerifiedOutcome {
   status: "verified";
   summary: string;
-  verification: "scoped-worker-contract";
+  verification: VerificationDecision;
   artifactCount: number;
 }
 
 export interface UnverifiedOutcome {
   status: "unverified";
   summary: string;
-  reason: "worker-unverified" | "reconciliation-required" | "missing-summary";
+  reason: Extract<VerificationDecision, { status: "unverified" }>["reasons"][0]["code"];
+  verification: VerificationDecision;
   artifactCount: number;
 }
 
@@ -88,6 +96,7 @@ export interface MinimalExecutionKernelOptions {
     task: string;
     requestedCapabilityIds: readonly string[];
   }) => CapabilityManifest;
+  verifier?: OutcomeVerifier;
   onEvent?: (event: KernelLifecycleEvent) => void;
 }
 
@@ -140,37 +149,75 @@ export function renderExecutionCapabilityManifest(
   return `[BMO EXECUTION CAPABILITY MANIFEST v${manifest.version}]\n${JSON.stringify(manifest, null, 2)}`;
 }
 
-export function executionResultToOutcome(result: ExecutionResult): KernelOutcome {
+function legacyWorkerEvidence(
+  result: ExecutionResult,
+  workerId: ExecutionCapabilityManifest["worker"]["id"],
+): VerificationEvidence[] {
+  if (result.verificationEvidence !== undefined) {
+    return [...result.verificationEvidence];
+  }
+  if (!result.verified) return [];
+  return [{
+    id: `${workerId}.verification-contract`,
+    kind: "worker-contract",
+    source: workerId,
+    polarity: "supports",
+    strength: "direct",
+    statement: "The scoped worker reported that its existing direct verification contract passed.",
+  }];
+}
+
+function verificationEvidence(
+  result: ExecutionResult,
+  workerId: ExecutionCapabilityManifest["worker"]["id"],
+) {
+  const evidence = legacyWorkerEvidence(result, workerId);
+  if (result.reconciliationRequired) {
+    evidence.push({
+      id: "kernel.reconciliation-required",
+      kind: "reconciliation",
+      source: "minimal-execution-kernel",
+      polarity: "contradicts",
+      strength: "direct",
+      statement: "The execution result requires reconciliation before completion can be trusted.",
+    });
+  }
+  return evidence;
+}
+
+export function executionResultToOutcome(
+  result: ExecutionResult,
+  verifier: OutcomeVerifier = defaultOutcomeVerifier,
+  workerId: ExecutionCapabilityManifest["worker"]["id"] = "codex-task",
+): KernelOutcome {
   const summary = result.summary.trim();
   const artifactCount = result.artifacts?.length ?? 0;
-  if (result.reconciliationRequired) {
+  const evidence = verificationEvidence(result, workerId);
+  const verification = verifier.verify({
+    summary,
+    workerClaimedVerified: result.verified,
+    reconciliationRequired: result.reconciliationRequired === true,
+    evidence,
+  });
+  if (verification.status === "unverified") {
+    const reason = verification.reasons[0].code;
+    const fallback = reason === "reconciliation-required"
+      ? "UNVERIFIED: The scoped worker requires reconciliation."
+      : reason === "missing-summary"
+        ? "UNVERIFIED: The scoped worker returned no outcome summary."
+        : "UNVERIFIED: The verification evidence was insufficient.";
     return {
       status: "unverified",
-      summary: summary || "UNVERIFIED: The scoped worker requires reconciliation.",
-      reason: "reconciliation-required",
-      artifactCount,
-    };
-  }
-  if (!summary) {
-    return {
-      status: "unverified",
-      summary: "UNVERIFIED: The scoped worker returned no outcome summary.",
-      reason: "missing-summary",
-      artifactCount,
-    };
-  }
-  if (!result.verified) {
-    return {
-      status: "unverified",
-      summary,
-      reason: "worker-unverified",
+      summary: summary || fallback,
+      reason,
+      verification,
       artifactCount,
     };
   }
   return {
     status: "verified",
     summary,
-    verification: "scoped-worker-contract",
+    verification,
     artifactCount,
   };
 }
@@ -303,7 +350,15 @@ export class MinimalExecutionKernel implements TaskExecutor {
         verifiedClaim: result.verified,
         reconciliationRequired: result.reconciliationRequired === true,
       });
-      const outcome = executionResultToOutcome(result);
+      const outcome = executionResultToOutcome(
+        result,
+        this.options.verifier ?? defaultOutcomeVerifier,
+        capabilityManifest.worker.id,
+      );
+      const evidence = boundVerificationEvidence(
+        verificationEvidence(result, capabilityManifest.worker.id),
+      );
+      const verificationDecision = outcome.verification;
       emit(outcome.status === "verified"
         ? { type: "kernel.outcome_verified", outcome }
         : { type: "kernel.outcome_unverified", outcome });
@@ -311,6 +366,8 @@ export class MinimalExecutionKernel implements TaskExecutor {
         ...result,
         summary: outcome.summary,
         verified: outcome.status === "verified",
+        verificationEvidence: evidence,
+        verificationDecision,
       };
     } catch (error) {
       emit({
