@@ -57,6 +57,7 @@ test("token exhaustion stops the worker with a deterministic summarize outcome",
   };
   const result = await new MinimalExecutionKernel(worker, {
     budgets: { maxTotalTokens: 100 },
+    now: () => AUTHORITY_NOW,
   }).execute(
     "private goal",
     new AbortController().signal,
@@ -88,6 +89,7 @@ test("time exhaustion aborts a worker and returns stop instead of retrying", asy
   };
   const result = await new MinimalExecutionKernel(worker, {
     budgets: { maxDurationMs: 5 },
+    now: () => AUTHORITY_NOW,
   }).execute(
     "wait",
     new AbortController().signal,
@@ -113,6 +115,7 @@ test("turn and tool-call ceilings produce needs-decision outcomes", async () => 
   };
   const turnResult = await new MinimalExecutionKernel(turnWorker, {
     budgets: { maxTurns: 1 },
+    now: () => AUTHORITY_NOW,
   }).execute(
     "turns",
     new AbortController().signal,
@@ -134,6 +137,7 @@ test("turn and tool-call ceilings produce needs-decision outcomes", async () => 
   };
   const toolResult = await new MinimalExecutionKernel(toolWorker, {
     budgets: { maxToolCalls: 1, maxRepeatedActionOccurrences: 10 },
+    now: () => AUTHORITY_NOW,
   }).execute(
     "tools",
     new AbortController().signal,
@@ -188,6 +192,7 @@ test("guardrail events expose counters but never raw goals or fingerprints", asy
   const result = await new MinimalExecutionKernel(worker, {
     budgets: { maxRepeatedActionOccurrences: 2 },
     onEvent: (event) => events.push(event),
+    now: () => AUTHORITY_NOW,
   }).execute(
     "private goal 72119",
     new AbortController().signal,

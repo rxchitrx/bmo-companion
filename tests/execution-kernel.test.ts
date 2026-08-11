@@ -266,7 +266,14 @@ test("explicit missing or contradictory worker evidence cannot inherit legacy ve
         verificationEvidence: [],
       };
     },
-  }).execute("Check the outcome", new AbortController().signal, () => {});
+  }, { now: () => AUTHORITY_NOW }).execute(
+    "Check the outcome",
+    new AbortController().signal,
+    () => {},
+    undefined,
+    undefined,
+    approvedExecution("Check the outcome"),
+  );
   assert.equal(missing.verified, false);
   assert.deepEqual(missing.verificationDecision?.reasons.map((reason) => reason.code), [
     "missing-evidence",
@@ -287,7 +294,14 @@ test("explicit missing or contradictory worker evidence cannot inherit legacy ve
         }],
       };
     },
-  }).execute("Check the outcome", new AbortController().signal, () => {});
+  }, { now: () => AUTHORITY_NOW }).execute(
+    "Check the outcome",
+    new AbortController().signal,
+    () => {},
+    undefined,
+    undefined,
+    approvedExecution("Check the outcome"),
+  );
   assert.equal(contradictory.verified, false);
   assert.ok(contradictory.verificationDecision?.reasons.some((reason) =>
     reason.code === "contradictory-evidence"));
@@ -315,10 +329,13 @@ test("the kernel's typed verifier decision is authoritative over the worker clai
     async execute() {
       return { summary: "Worker claimed completion.", verified: true };
     },
-  }, { verifier }).execute(
+  }, { verifier, now: () => AUTHORITY_NOW }).execute(
     "Verify one outcome",
     new AbortController().signal,
     () => {},
+    undefined,
+    undefined,
+    approvedExecution("Verify one outcome"),
   );
   assert.equal(received?.workerClaimedVerified, true);
   assert.equal(received?.evidence.length, 1);
