@@ -19,12 +19,17 @@ import {
   type VerificationDecision,
   type VerificationEvidence,
 } from "./outcome-verifier.js";
+import {
+  ExecutionGuardrailTracker,
+  type ExecutionBudgets,
+} from "./execution-guardrails.js";
 import type {
   ExecutionResult,
   TaskExecutionOptions,
   TaskExecutor,
   TokenUsage,
   AccountUsage,
+  ExecutionGuardrailOutcome,
 } from "./task-runtime.js";
 
 export const EXECUTION_KERNEL_VERSION = 1 as const;
@@ -98,6 +103,11 @@ export type KernelLifecycleEventData =
   | { type: "kernel.worker_completed"; verifiedClaim: boolean; reconciliationRequired: boolean }
   | { type: "kernel.outcome_verified"; outcome: VerifiedOutcome }
   | { type: "kernel.outcome_unverified"; outcome: UnverifiedOutcome }
+  | {
+      type: "kernel.guardrail_triggered";
+      outcome: ExecutionGuardrailOutcome;
+      counters: ReturnType<ExecutionGuardrailTracker["snapshot"]>;
+    }
   | { type: "kernel.failed"; errorName: string };
 
 export type KernelLifecycleEvent = KernelEventBase & KernelLifecycleEventData;
@@ -110,6 +120,7 @@ export interface MinimalExecutionKernelOptions {
   verifier?: OutcomeVerifier;
   onEvent?: (event: KernelLifecycleEvent) => void;
   now?: () => Date;
+  budgets?: Partial<ExecutionBudgets>;
 }
 
 export function createExecutionCapabilityManifest(
@@ -252,6 +263,13 @@ export class MinimalExecutionKernel implements TaskExecutor {
   ): Promise<ExecutionResult> {
     const runId = randomUUID();
     let sequence = 0;
+    const guardrails = new ExecutionGuardrailTracker(this.options.budgets);
+    const workerController = new AbortController();
+    let guardrailOutcome: ExecutionGuardrailOutcome | undefined;
+    let resolveGuardrail: ((result: ExecutionResult) => void) | undefined;
+    const guardrailResult = new Promise<ExecutionResult>((resolve) => {
+      resolveGuardrail = resolve;
+    });
     const emit = (event: KernelLifecycleEventData) => {
       const lifecycleEvent = {
         ...event,
@@ -273,6 +291,63 @@ export class MinimalExecutionKernel implements TaskExecutor {
         });
       }
     };
+
+    const stopForGuardrail = (outcome: ExecutionGuardrailOutcome | undefined) => {
+      if (!outcome || guardrailOutcome) return;
+      guardrailOutcome = outcome;
+      const counters = guardrails.snapshot();
+      emit({ type: "kernel.guardrail_triggered", outcome, counters });
+      workerController.abort();
+      resolveGuardrail?.({
+        summary: outcome.summary,
+        verified: false,
+        guardrailOutcome: outcome,
+      });
+    };
+    const observeBudget = (
+      event: Parameters<ExecutionGuardrailTracker["observe"]>[0],
+    ) => stopForGuardrail(guardrails.observe(event));
+    const stopOnParentAbort = () => workerController.abort();
+    if (signal.aborted) workerController.abort();
+    else signal.addEventListener("abort", stopOnParentAbort, { once: true });
+    const timeLimit = setTimeout(
+      () => stopForGuardrail(guardrails.expireTime()),
+      guardrails.budgets.maxDurationMs,
+    );
+
+    const finalizeResult = (
+      result: ExecutionResult,
+      workerId: ExecutionCapabilityManifest["worker"]["id"] = "codex-task",
+    ): ExecutionResult => {
+      const outcome = executionResultToOutcome(
+        result,
+        this.options.verifier ?? defaultOutcomeVerifier,
+        workerId,
+      );
+      const evidence = boundVerificationEvidence(
+        verificationEvidence(result, workerId),
+      );
+      const verificationDecision = outcome.verification;
+      emit(outcome.status === "verified"
+        ? { type: "kernel.outcome_verified", outcome }
+        : { type: "kernel.outcome_unverified", outcome });
+      return {
+        ...result,
+        summary: outcome.summary,
+        verified: outcome.status === "verified",
+        verificationEvidence: evidence,
+        verificationDecision,
+      };
+    };
+
+    const finishGuardrail = (
+      outcome: ExecutionGuardrailOutcome,
+      workerId: ExecutionCapabilityManifest["worker"]["id"] = "codex-task",
+    ) => finalizeResult({
+      summary: outcome.summary,
+      verified: false,
+      guardrailOutcome: outcome,
+    }, workerId);
 
     emit({ type: "kernel.started", taskKind: execution?.kind ?? "general" });
     try {
@@ -347,6 +422,13 @@ export class MinimalExecutionKernel implements TaskExecutor {
         throw new Error(`Selected capability manifest omitted ${connectorCapabilityId}.`);
       }
 
+      if (connectorCapabilityId) {
+        observeBudget({ type: "tool-started", fingerprint: "connector-task" });
+        if (guardrailOutcome) {
+          return finishGuardrail(guardrailOutcome, capabilityManifest.worker.id);
+        }
+      }
+
       const authorityScope = createTaskAuthorityScope({
         taskId: execution?.taskId ?? "missing-task-id",
         goal: contextPacket.purpose.objective,
@@ -370,6 +452,9 @@ export class MinimalExecutionKernel implements TaskExecutor {
       if (authorityPolicy.decision !== "allow") {
         throw new TaskAuthorityError(authorityPolicy);
       }
+      if (guardrailOutcome) {
+        return finishGuardrail(guardrailOutcome, capabilityManifest.worker.id);
+      }
       if (this.activeWorkerRunId) {
         throw new Error("A Mac-control worker is already active.");
       }
@@ -378,17 +463,35 @@ export class MinimalExecutionKernel implements TaskExecutor {
       emit({ type: "kernel.worker_started", workerId: capabilityManifest.worker.id });
       let result: ExecutionResult;
       try {
-        result = await this.worker.execute(
+        const workerResult = this.worker.execute(
           contextPacket.purpose.objective,
-          signal,
+          workerController.signal,
           (message) => {
             emit({ type: "kernel.worker_progress", message: textMeta(message) });
             progress(message);
           },
-          usage,
+          (latestUsage) => {
+            usage?.(latestUsage);
+            observeBudget({ type: "usage", totalTokens: latestUsage.totalTokens });
+          },
           accountUsage,
-          { ...execution, contextPacket, capabilityManifest },
+          {
+            ...execution,
+            contextPacket,
+            capabilityManifest,
+            budgetObserver: observeBudget,
+          },
         );
+        if (guardrailOutcome) {
+          return finishGuardrail(guardrailOutcome, capabilityManifest.worker.id);
+        }
+        result = await Promise.race([workerResult, guardrailResult]);
+        if (guardrailOutcome) {
+          return finishGuardrail(guardrailOutcome, capabilityManifest.worker.id);
+        }
+        if (result.guardrailOutcome) {
+          return finishGuardrail(result.guardrailOutcome, capabilityManifest.worker.id);
+        }
       } finally {
         if (this.activeWorkerRunId === runId) this.activeWorkerRunId = null;
       }
@@ -397,31 +500,17 @@ export class MinimalExecutionKernel implements TaskExecutor {
         verifiedClaim: result.verified,
         reconciliationRequired: result.reconciliationRequired === true,
       });
-      const outcome = executionResultToOutcome(
-        result,
-        this.options.verifier ?? defaultOutcomeVerifier,
-        capabilityManifest.worker.id,
-      );
-      const evidence = boundVerificationEvidence(
-        verificationEvidence(result, capabilityManifest.worker.id),
-      );
-      const verificationDecision = outcome.verification;
-      emit(outcome.status === "verified"
-        ? { type: "kernel.outcome_verified", outcome }
-        : { type: "kernel.outcome_unverified", outcome });
-      return {
-        ...result,
-        summary: outcome.summary,
-        verified: outcome.status === "verified",
-        verificationEvidence: evidence,
-        verificationDecision,
-      };
+      return finalizeResult(result, capabilityManifest.worker.id);
     } catch (error) {
+      if (guardrailOutcome) return finishGuardrail(guardrailOutcome);
       emit({
         type: "kernel.failed",
         errorName: error instanceof Error ? error.name : "unknown",
       });
       throw error;
+    } finally {
+      clearTimeout(timeLimit);
+      signal.removeEventListener("abort", stopOnParentAbort);
     }
   }
 }

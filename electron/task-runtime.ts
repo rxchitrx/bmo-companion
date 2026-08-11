@@ -56,6 +56,27 @@ export interface TaskTiming {
   totalMs: number;
 }
 
+export type ExecutionBudgetEvent =
+  | { type: "usage"; totalTokens: number }
+  | { type: "turn-started" }
+  | { type: "tool-started"; fingerprint: string }
+  | { type: "tool-completed"; fingerprint: string; failed: boolean };
+
+export interface ExecutionGuardrailOutcome {
+  version: 1;
+  action: "stop" | "summarize" | "needs-decision";
+  reason:
+    | "tokens"
+    | "time"
+    | "tool-calls"
+    | "turns"
+    | "loop"
+    | "repeated-failures";
+  observed: number;
+  limit: number;
+  summary: string;
+}
+
 export interface TaskSnapshot {
   id: string;
   goal: string;
@@ -98,6 +119,7 @@ export interface ExecutionResult {
   accountUsage?: AccountUsage;
   timing?: TaskTiming;
   artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
+  guardrailOutcome?: ExecutionGuardrailOutcome;
 }
 
 export interface TaskExecutionOptions {
@@ -111,6 +133,7 @@ export interface TaskExecutionOptions {
   capabilityManifest?: ExecutionCapabilityManifest;
   taskId?: string;
   authority?: ScopedTaskAuthority;
+  budgetObserver?: (event: ExecutionBudgetEvent) => void;
 }
 
 export interface TaskExecutor {
