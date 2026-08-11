@@ -8,6 +8,7 @@ import sys
 from typing import Any, Sequence
 
 from .comparison import LabError, METRICS, compare_scenario, load_scenario
+from .trajectory import TrajectoryError, load_trajectory, render_replay, replay_trajectory
 
 
 LABELS = {
@@ -64,11 +65,35 @@ def build_parser() -> argparse.ArgumentParser:
     compare = subparsers.add_parser("compare", help="compare the runs named by a versioned scenario")
     compare.add_argument("scenario", help="path to scenario JSON")
     compare.add_argument("--json", action="store_true", help="emit machine-readable comparison JSON")
+    replay = subparsers.add_parser(
+        "replay",
+        help="replay a privacy-safe trajectory against a deterministic fixture",
+    )
+    replay.add_argument("trajectory", help="path to a trajectory JSON record")
+    replay.add_argument(
+        "--fixture",
+        default=None,
+        help="fixture id; defaults to the record's trajectoryId when it names a fixture",
+    )
+    replay.add_argument("--json", action="store_true", help="emit machine-readable replay JSON")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "replay":
+        try:
+            trajectory = load_trajectory(args.trajectory)
+            fixture = args.fixture or trajectory["trajectoryId"]
+            result = replay_trajectory(trajectory, fixture)
+        except (LabError, TrajectoryError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(render_replay(result), end="")
+        return 0 if result["status"] == "passed" else 1
     try:
         comparison = compare_scenario(load_scenario(args.scenario))
     except LabError as error:

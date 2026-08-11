@@ -24,6 +24,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `docs/CONNECTORS.md` — connected-service architecture, safety boundary, setup, and verification.
 - `docs/EVALUATION.md` — deterministic five-canary evaluation scaffold and safe integration guide.
 - `docs/PERMISSIONS-LIFECYCLE.md` — scoped approval, pause/resume, recovery, expiry, and single-worker authority contract.
+- `docs/TRAJECTORY-REPLAY.md` — privacy-safe trajectory metadata and deterministic offline replay.
 - `electron/context-packet.ts` — bounded Context Packet selection and manifests for managed Tasks.
 - `docs/CONTEXT-PACKETS.md` — Context Packet inclusion, budget, history, and privacy boundaries.
 - `reliability_lab/README.md` — offline Python baseline-versus-candidate replay analysis.

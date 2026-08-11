@@ -8,14 +8,21 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from reliability_lab.cli import main, render_scorecard
+from reliability_lab.cli import main, render_replay, render_scorecard
 from reliability_lab.comparison import LabError, compare_scenario, load_scenario, validate_results
+from reliability_lab.trajectory import (
+    TrajectoryError,
+    load_trajectory,
+    replay_trajectory,
+    validate_trajectory,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "reliability_lab/scenarios/deterministic-example.json"
 SCHEMA = json.loads((ROOT / "evaluation/evaluation-result.schema.json").read_text(encoding="utf-8"))
 FIXTURE = json.loads((ROOT / "reliability_lab/fixtures/deterministic-baseline.json").read_text(encoding="utf-8"))
+TRAJECTORY_FIXTURE = ROOT / "reliability_lab/fixtures/trajectory-verified-completion.json"
 
 
 class ReliabilityLabTests(unittest.TestCase):
@@ -95,6 +102,55 @@ class ReliabilityLabTests(unittest.TestCase):
         self.assertIn("cached input: unsupported -> unsupported [unavailable]", text)
         self.assertIn("outcome: pass -> pass [unchanged]", text)
         self.assertIn("evidence: 2 -> 2 [unchanged]", text)
+
+    def test_trajectory_fixture_replays_without_execution(self) -> None:
+        trajectory = load_trajectory(TRAJECTORY_FIXTURE)
+        result = replay_trajectory(trajectory, "verified-completion")
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["terminalState"], "completed")
+        self.assertEqual(result["toolExecutionCount"], 0)
+        self.assertEqual(result["liveServiceCallCount"], 0)
+        self.assertEqual(result["computerUseCallCount"], 0)
+        self.assertEqual(validate_trajectory(trajectory), [])
+
+    def test_trajectory_rejects_raw_text_in_event_metadata(self) -> None:
+        trajectory = json.loads(TRAJECTORY_FIXTURE.read_text(encoding="utf-8"))
+        trajectory["events"][0]["metadata"]["goal"] = "private prompt"
+
+        errors = validate_trajectory(trajectory)
+        self.assertTrue(any("raw or unsupported text" in error for error in errors))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid-trajectory.json"
+            path.write_text(json.dumps(trajectory), encoding="utf-8")
+            with self.assertRaisesRegex(TrajectoryError, "Invalid trajectory"):
+                load_trajectory(path)
+
+    def test_trajectory_replay_fails_closed_before_allow(self) -> None:
+        trajectory = json.loads(TRAJECTORY_FIXTURE.read_text(encoding="utf-8"))
+        trajectory["events"] = [
+            {"sequence": 1, "type": "task.created", "metadata": {}},
+            {"sequence": 2, "type": "kernel.worker_started", "metadata": {"workerId": "codex-task"}},
+            {"sequence": 3, "type": "kernel.outcome_verified", "metadata": {"outcomeStatus": "verified"}},
+            {"sequence": 4, "type": "task.completed", "metadata": {"status": "completed"}},
+        ]
+
+        result = replay_trajectory(trajectory, "verified-completion")
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(any("without an allow decision" in violation for violation in result["violations"]))
+
+    def test_trajectory_cli_has_machine_and_human_modes(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = main(["replay", str(TRAJECTORY_FIXTURE), "--fixture", "verified-completion", "--json"])
+        result = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["toolExecutionCount"], 0)
+
+        text = render_replay(result)
+        self.assertIn("Status: PASSED", text)
+        self.assertIn("tools=0, live-services=0, computer-use=0", text)
 
     def _compare_temp(self, baseline: list[dict], candidate: list[dict]) -> dict:
         with tempfile.TemporaryDirectory() as directory:

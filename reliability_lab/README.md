@@ -1,6 +1,6 @@
 # Python Reliability Lab
 
-This is a small, standard-library-only lab for comparing two saved outputs from the permanent evaluation spine. It is offline and read-only: it does not call models or APIs, start Electron, access connectors, use Computer Use, or write result files.
+This is a small, standard-library-only lab for comparing saved outputs from the permanent evaluation spine and replaying privacy-safe trajectory records. It is offline and read-only: it does not call models or APIs, start Electron, access connectors, use Computer Use, or write result files.
 
 ## Run the example
 
@@ -15,6 +15,28 @@ The scorecard compares input, cached-input, fresh-input, output, and reasoning t
 
 Fixture results prove only replay and comparison behavior. They are not live model or runtime measurements.
 
+## Replay a trajectory
+
+Trajectory records use schema `1.0`. They retain task/context metadata, lifecycle
+decisions, selected capability ids, usage deltas, guardrail outcomes, bounded
+verification evidence, and user-correction digests. Raw prompts, outputs, tool
+arguments/results, personal data, and wall-clock payloads are not part of the
+contract.
+
+Replay applies the recorded decision path to a deterministic state-machine
+fixture. It never starts a worker, calls a service, executes a tool, opens a
+browser, or uses Computer Use.
+
+```bash
+python3 -m reliability_lab replay reliability_lab/fixtures/trajectory-verified-completion.json \
+  --fixture verified-completion
+python3 -m reliability_lab replay reliability_lab/fixtures/trajectory-verified-completion.json \
+  --fixture verified-completion --json
+```
+
+Replay passes prove only that the saved decision path satisfies the fixture
+contract. They are not evidence that the original live Task succeeded.
+
 ## Add a scenario
 
 1. Save baseline and candidate JSON arrays produced by `npm run --silent eval:canaries -- --json`. Do not hand-convert missing telemetry to zero.
@@ -24,6 +46,11 @@ Fixture results prove only replay and comparison behavior. They are not live mod
 5. Run both scorecard and `--json` modes, then run the Python tests.
 
 The scenario contract is documented in `reliability_lab/schemas/scenario-v1.schema.json`. Baseline and candidate must contain the same unique case IDs and conform to the evaluation spine fields consumed by comparison format 1.0.
+
+The trajectory contract is documented in
+`reliability_lab/schemas/trajectory-v1.schema.json`. Keep it versioned: add a
+new schema and replay implementation when fields or privacy guarantees change;
+never reinterpret a saved v1 record silently.
 
 ## Tests
 
