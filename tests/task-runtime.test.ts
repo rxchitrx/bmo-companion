@@ -8,6 +8,7 @@ import {
   type StoredTask,
   type TaskStore,
   type TaskExecutor,
+  type TaskExecutionOptions,
 } from "../electron/task-runtime.ts";
 
 class MemoryLedger implements ActivityLedger {
@@ -48,7 +49,7 @@ test("one approval drives a general Task to Verified Outcome", async () => {
 });
 
 test("a Task freezes its selected capability model through approval and execution", async () => {
-  let receivedModel: { model: string; effort: string } | undefined;
+  let receivedModel: TaskExecutionOptions | undefined;
   const runtime = new TaskRuntime(
     {
       async execute(_goal, _signal, _progress, _usage, _accountUsage, model) {
@@ -67,11 +68,12 @@ test("a Task freezes its selected capability model through approval and executio
   assert.equal(task.kind, "coding");
   assert.equal(task.model, "gpt-5.6-sol");
   await runtime.approve(task.id);
-  assert.deepEqual(receivedModel, {
-    model: "gpt-5.6-sol",
-    effort: "high",
-    kind: "coding",
-  });
+  assert.equal(receivedModel?.model, "gpt-5.6-sol");
+  assert.equal(receivedModel?.effort, "high");
+  assert.equal(receivedModel?.kind, "coding");
+  assert.equal(receivedModel?.taskId, task.id);
+  assert.equal(receivedModel?.authority?.decision, "allow");
+  assert.deepEqual(receivedModel?.authority?.scope.capabilityIds, ["codex.workspace"]);
 });
 
 test("task usage is published live and persisted with the verified outcome", async () => {
@@ -428,6 +430,7 @@ test("restart restores context without action replay and requires observation be
   // Simulate a process ending after authority was recorded but before work starts.
   store.value!.task.status = "running";
   store.value!.task.approvalExpiresAt = new Date(time.now().getTime() + 60_000).toISOString();
+  delete store.value!.task.authority;
   const updates: string[] = [];
   const observer: RecoveryObserver = { async observe() { return { scopeStillMatches: true, detail: "Observed current setting." }; } };
   const restored = new TaskRuntime(executor, ledger, (snapshot) => updates.push(snapshot.status), time.now, store, observer);
@@ -451,6 +454,7 @@ test("a locked Mac suspends work and only resumes through valid recovery authori
   const task = await first.create("Use the Mac");
   store.value!.task.status = "running";
   store.value!.task.approvalExpiresAt = new Date(time.now().getTime() + 60_000).toISOString();
+  delete store.value!.task.authority;
   const observer: RecoveryObserver = { async observe() { return { scopeStillMatches: true }; } };
   const runtime = new TaskRuntime(executor, ledger, () => {}, time.now, store, observer);
   await runtime.restore();

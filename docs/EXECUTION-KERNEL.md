@@ -10,8 +10,9 @@ approved Tasks:
 5. Convert the worker result through one `VerifiedOutcome` boundary.
 
 `TaskRuntime` remains the owner of approval, cancellation, recovery, durable Task
-status and Activity Ledger writes. The kernel does not grant authority, retry a
-worker, create Tasks, change lifecycle policy, or publish UI state.
+status and Activity Ledger writes. The kernel validates Task Runtime's scoped,
+expiring authority immediately before worker startup; it does not grant that
+authority, retry a worker, create Tasks, or publish UI state.
 
 ## Capability binding
 
@@ -34,6 +35,7 @@ Every event carries kernel version, run id, and monotonic sequence:
 - `kernel.started`
 - `kernel.context_prepared`
 - `kernel.capabilities_selected`
+- `kernel.permission_decided`
 - `kernel.worker_started`
 - `kernel.worker_progress`
 - `kernel.worker_completed`
@@ -62,5 +64,7 @@ from the validated connector result.
   execution manifest rather than rebuilding broader ambient context.
 - New connector actions must remain explicitly allowlisted by Task 4 before a
   connector Task can reach its worker.
+- Production execution must carry a `ScopedTaskAuthority` whose Task, objective,
+  worker and capability scope exactly match the prepared execution manifest.
 - Live canary wiring, cost guardrails, Python evaluation changes, UI additions
-  and lifecycle-policy extensions remain separate future work.
+  and outcome-policy changes remain separate future work.

@@ -5,6 +5,17 @@ import { diagnosticLog, textMeta } from "./diagnostics.js";
 import type { ConnectorCall } from "./connector-types.js";
 import type { TaskContextPacket } from "./context-packet.js";
 import type { ExecutionCapabilityManifest } from "./execution-kernel.js";
+import {
+  allowTaskAuthority,
+  askForTaskAuthority,
+  createTaskAuthorityScope,
+  denyTaskAuthority,
+  evaluateTaskAuthority,
+  pauseTaskAuthority,
+  requireTaskAuthorityDecision,
+  revalidateTaskAuthority,
+  type ScopedTaskAuthority,
+} from "./permission-lifecycle.js";
 
 export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
 
@@ -62,6 +73,7 @@ export interface TaskSnapshot {
   retryOf?: string;
   priorOutcome?: string;
   connectorCall?: ConnectorCall;
+  authority?: ScopedTaskAuthority;
 }
 
 export interface StoredTask {
@@ -91,6 +103,8 @@ export interface TaskExecutionOptions {
   connectorCall?: ConnectorCall;
   contextPacket?: TaskContextPacket;
   capabilityManifest?: ExecutionCapabilityManifest;
+  taskId?: string;
+  authority?: ScopedTaskAuthority;
 }
 
 export interface TaskExecutor {
@@ -184,6 +198,7 @@ const ACTIVE = new Set<TaskStatus>(["waiting_approval", "needs_decision", "suspe
 export class TaskRuntime {
   private current: StoredTask | null = null;
   private abortController: AbortController | null = null;
+  private activeExecution: Promise<void> | null = null;
 
   constructor(
     private readonly executor: TaskExecutor,
@@ -217,12 +232,18 @@ export class TaskRuntime {
       approvalExpiresAt: stored.task.approvalExpiresAt,
     });
     this.current = stored;
+    this.ensureAuthority(stored);
     if (ACTIVE.has(stored.task.status)) {
       stored.task.status = "suspended";
       stored.task.state = "approval";
       stored.task.recoveryRequired = true;
       stored.task.summary = "Restart Recovery is checking the current state before this Task can continue.";
       stored.task.progress.push("Restart Recovery restored context. No prior Mac actions were replayed.");
+      stored.task.authority = pauseTaskAuthority(
+        stored.task.authority!,
+        this.now(),
+        "restart-recovery-required",
+      );
       await this.persist("task.recovery_restored", { actionReplay: false });
     }
     this.publish();
@@ -268,8 +289,9 @@ export class TaskRuntime {
       });
       throw new Error("A Task is already active.");
     }
+    const taskId = randomUUID();
     const task: TaskSnapshot = {
-      id: randomUUID(),
+      id: taskId,
       goal,
       status: "waiting_approval",
       state: "approval",
@@ -282,6 +304,15 @@ export class TaskRuntime {
       retryOf: options.retryOf,
       priorOutcome: options.priorOutcome,
       connectorCall: options.connectorCall,
+      authority: askForTaskAuthority(
+        createTaskAuthorityScope({
+          taskId,
+          goal,
+          taskKind: options.kind,
+          connectorCall: options.connectorCall,
+        }),
+        this.now(),
+      ),
     };
     this.current = { task, reminderIndex: 0, nextReminderAt: this.afterMinutes(REMINDER_MINUTES[0]), executionSurfaceAvailable: true };
     await this.persist("task.created");
@@ -299,7 +330,7 @@ export class TaskRuntime {
     this.grantApproval(stored);
     await this.persist("task.approved");
     this.publish();
-    await this.runApprovedTask(stored);
+    await this.startApprovedTask(stored);
   }
 
   async createRetry(
@@ -320,6 +351,12 @@ export class TaskRuntime {
       previous.task.progress.at(-1) ??
       "The previous Task ended without a recorded outcome.";
     if (previous.task.status === "needs_decision") {
+      this.ensureAuthority(previous);
+      previous.task.authority = denyTaskAuthority(
+        previous.task.authority!,
+        this.now(),
+        "superseded-by-explicit-retry",
+      );
       previous.task.status = "cancelled";
       previous.task.state = "idle";
       previous.task.finishedAt = this.now().toISOString();
@@ -352,6 +389,11 @@ export class TaskRuntime {
     stored.task.state = "approval";
     stored.task.recoveryRequired = true;
     stored.task.progress.push("Approval extended by direct confirmation. Restart Recovery must still re-observe state.");
+    stored.task.authority = pauseTaskAuthority(
+      stored.task.authority!,
+      this.now(),
+      "recovery-revalidation-required",
+    );
     await this.persist("task.approval_extended");
     this.publish();
   }
@@ -369,6 +411,12 @@ export class TaskRuntime {
     stored.task.state = "approval";
     stored.task.summary = question;
     stored.task.progress.push(`Needs Decision: ${question}`);
+    this.ensureAuthority(stored);
+    stored.task.authority = requireTaskAuthorityDecision(
+      stored.task.authority!,
+      this.now(),
+      "owner-decision-required",
+    );
     stored.reminderIndex = 0;
     stored.nextReminderAt = this.afterMinutes(REMINDER_MINUTES[0]);
     this.abortController?.abort();
@@ -388,7 +436,32 @@ export class TaskRuntime {
     });
     if (stored.task.status !== "suspended" || !stored.task.recoveryRequired) throw new Error("Task does not require Restart Recovery.");
     if (!stored.executionSurfaceAvailable) return;
-    if (!this.hasValidApproval(stored)) return this.expireApproval(stored);
+    this.ensureAuthority(stored);
+    const policy = evaluateTaskAuthority(
+      stored.task.authority,
+      this.authorityScope(stored.task),
+      this.now(),
+      { allowPaused: true },
+    );
+    if (policy.reason === "authority-expired") return this.expireApproval(stored);
+    if (policy.decision !== "allow") {
+      stored.task.status = "needs_decision";
+      stored.task.state = "approval";
+      stored.task.summary = `Task authority requires owner confirmation: ${policy.reason}.`;
+      stored.task.progress.push(stored.task.summary);
+      stored.task.authority = requireTaskAuthorityDecision(
+        stored.task.authority!,
+        this.now(),
+        policy.reason,
+      );
+      await this.persist("task.recovery_requires_decision", {
+        policyDecision: policy.decision,
+        policyReason: policy.reason,
+        actionReplay: false,
+      });
+      this.publish();
+      return;
+    }
     const observation = await this.observer.observe(this.snapshot());
     diagnosticLog("task.runtime", "recovery.observed", {
       taskId: id,
@@ -401,6 +474,11 @@ export class TaskRuntime {
       stored.task.state = "approval";
       stored.task.summary = observation.detail ?? "The current state changed and needs your decision.";
       stored.task.progress.push("Restart Recovery found changed external state. Waiting for your decision.");
+      stored.task.authority = requireTaskAuthorityDecision(
+        stored.task.authority!,
+        this.now(),
+        "external-scope-changed",
+      );
       stored.reminderIndex = 0;
       stored.nextReminderAt = this.afterMinutes(REMINDER_MINUTES[0]);
       await this.persist("task.recovery_requires_decision", { actionReplay: false });
@@ -411,9 +489,10 @@ export class TaskRuntime {
     stored.task.status = "running";
     stored.task.state = "thinking";
     stored.task.progress.push("Restart Recovery re-observed state and revalidated authority.");
+    stored.task.authority = revalidateTaskAuthority(stored.task.authority!, this.now());
     await this.persist("task.recovery_revalidated", { actionReplay: false });
     this.publish();
-    await this.runApprovedTask(stored);
+    await this.startApprovedTask(stored);
   }
 
   async setExecutionSurfaceAvailable(available: boolean): Promise<void> {
@@ -430,6 +509,12 @@ export class TaskRuntime {
       this.current.task.recoveryRequired = true;
       this.current.task.summary = "Mac-control is suspended while this Mac is locked or unavailable.";
       this.current.task.progress.push("Mac-control surface unavailable. Task suspended without replaying actions.");
+      this.ensureAuthority(this.current);
+      this.current.task.authority = pauseTaskAuthority(
+        this.current.task.authority!,
+        this.now(),
+        "execution-surface-unavailable",
+      );
       this.abortController?.abort();
       await this.persist("task.suspended", { reason: "execution_surface_unavailable" });
       this.publish();
@@ -450,7 +535,7 @@ export class TaskRuntime {
     });
     if (!this.current) return;
     const stored = this.current;
-    if (stored.approvalGrantedAt && !this.hasValidApproval(stored) && ACTIVE.has(stored.task.status)) {
+    if (stored.approvalGrantedAt && this.approvalExpired(stored) && ACTIVE.has(stored.task.status)) {
       return this.expireApproval(stored);
     }
     if (!(["waiting_approval", "needs_decision"].includes(stored.task.status))) return;
@@ -486,6 +571,30 @@ export class TaskRuntime {
     return true;
   }
 
+  /** Explicit owner pause. Resume always goes through recover() and read-only revalidation. */
+  async pause(id: string): Promise<void> {
+    const stored = this.requireTask(id);
+    if (stored.task.status !== "running") throw new Error("Only a running Task can be paused.");
+    stored.task.status = "suspended";
+    stored.task.state = "approval";
+    stored.task.recoveryRequired = true;
+    stored.task.summary = "Task paused. Mac-control authority is inactive until safe revalidation.";
+    stored.task.progress.push(stored.task.summary);
+    this.ensureAuthority(stored);
+    stored.task.authority = pauseTaskAuthority(
+      stored.task.authority!,
+      this.now(),
+      "owner-paused",
+    );
+    this.abortController?.abort();
+    await this.persist("task.paused", { reason: "owner_pause" });
+    this.publish();
+  }
+
+  async resume(id: string): Promise<void> {
+    await this.recover(id);
+  }
+
   private async cancelWithReason(id: string, reason: string, summary: string) {
     const stored = this.requireTask(id);
     if (!ACTIVE.has(stored.task.status)) {
@@ -496,9 +605,26 @@ export class TaskRuntime {
       });
       return;
     }
+    this.ensureAuthority(stored);
+    stored.task.authority = denyTaskAuthority(
+      stored.task.authority!,
+      this.now(),
+      reason,
+    );
     stored.task.status = "cancelled"; stored.task.state = "idle"; stored.task.finishedAt = this.now().toISOString(); stored.task.summary = summary; stored.task.progress.push(summary);
     this.abortController?.abort();
     await this.persist("task.cancelled", { reason }); this.publish();
+  }
+
+  private async startApprovedTask(stored: StoredTask): Promise<void> {
+    if (this.activeExecution) await this.activeExecution;
+    const execution = this.runApprovedTask(stored);
+    this.activeExecution = execution;
+    try {
+      await execution;
+    } finally {
+      if (this.activeExecution === execution) this.activeExecution = null;
+    }
   }
 
   private async runApprovedTask(stored: StoredTask): Promise<void> {
@@ -507,9 +633,11 @@ export class TaskRuntime {
       status: stored.task.status,
       surfaceAvailable: stored.executionSurfaceAvailable,
       approvalValid: this.hasValidApproval(stored),
+      policyDecision: this.permissionPolicy(stored).decision,
     });
-    if (this.current !== stored || !stored.executionSurfaceAvailable || !this.hasValidApproval(stored)) {
-      if (this.current === stored && !this.hasValidApproval(stored)) await this.expireApproval(stored);
+    const policy = this.permissionPolicy(stored);
+    if (this.current !== stored || !stored.executionSurfaceAvailable || policy.decision !== "allow") {
+      if (this.current === stored && policy.reason === "authority-expired") await this.expireApproval(stored);
       return;
     }
     stored.task.status = "running"; stored.task.state = "thinking";
@@ -548,8 +676,9 @@ export class TaskRuntime {
           void this.store.save(stored);
           this.publish();
         },
-        stored.task.model || stored.task.effort || stored.task.connectorCall
-          ? {
+          {
+              taskId: stored.task.id,
+              authority: structuredClone(stored.task.authority),
               model: stored.task.model,
               effort: stored.task.effort,
               kind: stored.task.kind,
@@ -562,8 +691,7 @@ export class TaskRuntime {
               ...(stored.task.priorOutcome
                 ? { priorOutcome: stored.task.priorOutcome }
                 : {}),
-            }
-          : undefined,
+            },
       );
       if (this.current !== stored || stored.task.status !== "running") return;
       diagnosticLog("task.runtime", "execution.result", {
@@ -577,6 +705,11 @@ export class TaskRuntime {
       if (result.accountUsage) stored.task.accountUsage = result.accountUsage;
       if (result.timing) stored.task.timing = result.timing;
       if (result.verified) {
+        stored.task.authority = denyTaskAuthority(
+          stored.task.authority!,
+          this.now(),
+          "task-settled",
+        );
         stored.task.status = "completed"; stored.task.state = "speaking"; stored.task.finishedAt = this.now().toISOString(); stored.task.progress.push("Verified Outcome recorded.");
         await this.persist("task.completed", {
           verified: true,
@@ -639,6 +772,12 @@ export class TaskRuntime {
       summary,
       extra,
     });
+    this.ensureAuthority(stored);
+    stored.task.authority = denyTaskAuthority(
+      stored.task.authority!,
+      this.now(),
+      "task-settled",
+    );
     stored.task.status = "failed"; stored.task.state = "error"; stored.task.finishedAt = this.now().toISOString(); stored.task.summary = summary; stored.task.progress.push(summary);
     await this.persist("task.failed", extra);
     if (stored.task.directiveId) {
@@ -692,6 +831,12 @@ export class TaskRuntime {
       actionReplay: false,
     });
     if (observation.goalSatisfied === true) {
+      this.ensureAuthority(stored);
+      stored.task.authority = denyTaskAuthority(
+        stored.task.authority!,
+        this.now(),
+        "task-settled",
+      );
       stored.task.status = "completed";
       stored.task.state = "speaking";
       stored.task.finishedAt = this.now().toISOString();
@@ -718,6 +863,12 @@ export class TaskRuntime {
     stored.task.progress.push(
       "Reconciliation could not verify completion. Waiting for the owner instead of retrying.",
     );
+    this.ensureAuthority(stored);
+    stored.task.authority = requireTaskAuthorityDecision(
+      stored.task.authority!,
+      this.now(),
+      "reconciliation-owner-decision-required",
+    );
     stored.reminderIndex = 0;
     stored.nextReminderAt = this.afterMinutes(REMINDER_MINUTES[0]);
     await this.persist("task.reconciliation_requires_decision", {
@@ -733,6 +884,11 @@ export class TaskRuntime {
     const granted = this.now();
     stored.approvalGrantedAt = granted.toISOString();
     stored.task.approvalExpiresAt = new Date(granted.getTime() + APPROVAL_MAX_MS).toISOString();
+    stored.task.authority = allowTaskAuthority(
+      this.authorityScope(stored.task),
+      granted,
+      new Date(stored.task.approvalExpiresAt),
+    );
     stored.reminderIndex = 0; stored.nextReminderAt = undefined;
     stored.task.status = "running"; stored.task.state = "thinking"; stored.task.recoveryRequired = false;
     stored.task.progress.push(
@@ -744,15 +900,64 @@ export class TaskRuntime {
       taskId: stored.task.id,
       approvalGrantedAt: stored.approvalGrantedAt,
       approvalExpiresAt: stored.task.approvalExpiresAt,
+      policyDecision: stored.task.authority.decision,
+      authorityScope: stored.task.authority.scope,
     });
   }
-  private hasValidApproval(stored: StoredTask) { return !!stored.task.approvalExpiresAt && this.now().getTime() < Date.parse(stored.task.approvalExpiresAt); }
+  private authorityScope(task: TaskSnapshot) {
+    return createTaskAuthorityScope({
+      taskId: task.id,
+      goal: task.goal,
+      taskKind: task.kind,
+      connectorCall: task.connectorCall,
+    });
+  }
+  private ensureAuthority(stored: StoredTask) {
+    if (stored.task.authority) return;
+    const scope = this.authorityScope(stored.task);
+    const expiresAt = stored.task.approvalExpiresAt;
+    const canRestorePriorAllow =
+      expiresAt && ["running", "suspended"].includes(stored.task.status);
+    const restored = canRestorePriorAllow
+      ? allowTaskAuthority(
+          scope,
+          new Date(stored.approvalGrantedAt ?? stored.task.createdAt ?? this.now()),
+          new Date(expiresAt),
+          "legacy-approval-restored",
+        )
+      : askForTaskAuthority(scope, this.now());
+    stored.task.authority = ACTIVE.has(stored.task.status)
+      ? restored
+      : denyTaskAuthority(restored, this.now(), "task-settled");
+  }
+  private permissionPolicy(stored: StoredTask) {
+    this.ensureAuthority(stored);
+    return evaluateTaskAuthority(
+      stored.task.authority,
+      this.authorityScope(stored.task),
+      this.now(),
+    );
+  }
+  private hasValidApproval(stored: StoredTask) {
+    return this.permissionPolicy(stored).decision === "allow";
+  }
+  private approvalExpired(stored: StoredTask) {
+    return !stored.task.approvalExpiresAt ||
+      this.now().getTime() >= Date.parse(stored.task.approvalExpiresAt);
+  }
   private async expireApproval(stored: StoredTask) {
     diagnosticLog("task.runtime", "approval.expired", {
       taskId: stored.task.id,
       approvalExpiresAt: stored.task.approvalExpiresAt,
     });
     stored.task.status = "needs_decision"; stored.task.state = "approval"; stored.task.recoveryRequired = true;
+    this.ensureAuthority(stored);
+    stored.task.authority = requireTaskAuthorityDecision(
+      stored.task.authority!,
+      this.now(),
+      "authority-expired",
+      "expired",
+    );
     stored.task.summary = "Task Approval expired after two hours. Direct confirmation is required to continue.";
     stored.task.progress.push(stored.task.summary); stored.nextReminderAt = undefined;
     this.abortController?.abort();

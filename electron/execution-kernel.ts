@@ -7,6 +7,11 @@ import {
 } from "./context-packet.js";
 import { recordContextSnapshot } from "./context-telemetry.js";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import {
+  createTaskAuthorityScope,
+  evaluateTaskAuthority,
+  TaskAuthorityError,
+} from "./permission-lifecycle.js";
 import type {
   ExecutionResult,
   TaskExecutionOptions,
@@ -74,6 +79,12 @@ export type KernelLifecycleEventData =
       workerId: ExecutionCapabilityManifest["worker"]["id"];
       selectedCapabilityIds: string[];
     }
+  | {
+      type: "kernel.permission_decided";
+      decision: "allow" | "ask" | "deny";
+      reason: string;
+      authorityExpiresAt?: string;
+    }
   | { type: "kernel.worker_started"; workerId: ExecutionCapabilityManifest["worker"]["id"] }
   | { type: "kernel.worker_progress"; message: ReturnType<typeof textMeta> }
   | { type: "kernel.worker_completed"; verifiedClaim: boolean; reconciliationRequired: boolean }
@@ -89,6 +100,7 @@ export interface MinimalExecutionKernelOptions {
     requestedCapabilityIds: readonly string[];
   }) => CapabilityManifest;
   onEvent?: (event: KernelLifecycleEvent) => void;
+  now?: () => Date;
 }
 
 export function createExecutionCapabilityManifest(
@@ -176,6 +188,8 @@ export function executionResultToOutcome(result: ExecutionResult): KernelOutcome
 }
 
 export class MinimalExecutionKernel implements TaskExecutor {
+  private activeWorkerRunId: string | null = null;
+
   constructor(
     private readonly worker: TaskExecutor,
     private readonly options: MinimalExecutionKernelOptions = {},
@@ -286,18 +300,51 @@ export class MinimalExecutionKernel implements TaskExecutor {
         throw new Error(`Selected capability manifest omitted ${connectorCapabilityId}.`);
       }
 
+      const authorityScope = createTaskAuthorityScope({
+        taskId: execution?.taskId ?? "missing-task-id",
+        goal: contextPacket.purpose.objective,
+        taskKind: contextPacket.purpose.taskKind,
+        workerId: capabilityManifest.worker.id,
+        capabilityIds: capabilityManifest.selectedCapabilityIds,
+      });
+      const authorityPolicy = signal.aborted
+        ? { decision: "deny" as const, reason: "authority-revoked" as const }
+        : evaluateTaskAuthority(
+            execution?.authority,
+            authorityScope,
+            this.options.now?.() ?? new Date(),
+          );
+      emit({
+        type: "kernel.permission_decided",
+        decision: authorityPolicy.decision,
+        reason: authorityPolicy.reason,
+        authorityExpiresAt: execution?.authority?.expiresAt,
+      });
+      if (authorityPolicy.decision !== "allow") {
+        throw new TaskAuthorityError(authorityPolicy);
+      }
+      if (this.activeWorkerRunId) {
+        throw new Error("A Mac-control worker is already active.");
+      }
+
+      this.activeWorkerRunId = runId;
       emit({ type: "kernel.worker_started", workerId: capabilityManifest.worker.id });
-      const result = await this.worker.execute(
-        contextPacket.purpose.objective,
-        signal,
-        (message) => {
-          emit({ type: "kernel.worker_progress", message: textMeta(message) });
-          progress(message);
-        },
-        usage,
-        accountUsage,
-        { ...execution, contextPacket, capabilityManifest },
-      );
+      let result: ExecutionResult;
+      try {
+        result = await this.worker.execute(
+          contextPacket.purpose.objective,
+          signal,
+          (message) => {
+            emit({ type: "kernel.worker_progress", message: textMeta(message) });
+            progress(message);
+          },
+          usage,
+          accountUsage,
+          { ...execution, contextPacket, capabilityManifest },
+        );
+      } finally {
+        if (this.activeWorkerRunId === runId) this.activeWorkerRunId = null;
+      }
       emit({
         type: "kernel.worker_completed",
         verifiedClaim: result.verified,
