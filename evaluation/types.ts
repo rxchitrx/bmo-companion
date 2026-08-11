@@ -58,6 +58,14 @@ export interface CanaryObservation {
   events: string[];
   toolCallNames: string[];
   connectorDiscoveryBytes?: number;
+  /** Set when the opt-in adapter could not safely run the canary. */
+  skipped?: {
+    reason: string;
+  };
+  /** The kernel's verifier result, when a live runtime reached settlement. */
+  runtimeOutcome?: "verified" | "unverified";
+  /** Additional runtime/kernel evidence retained by the live adapter. */
+  verificationEvidence?: VerificationEvidence[];
   telemetry?: Partial<{
     input: Measurement;
     cachedInput: Measurement;

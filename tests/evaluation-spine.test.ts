@@ -2,11 +2,21 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { canaryCases } from "../evaluation/canaries";
+import { compareEvaluationRuns } from "../evaluation/comparison";
 import { deterministicFixtureAdapter } from "../evaluation/fixtures";
-import { toJson, toMarkdown } from "../evaluation/reporters";
+import { createSafeLiveCanaryAdapter, type SafeCanaryRuntime } from "../evaluation/live-adapter";
+import {
+  toComparisonMarkdown,
+  toJson,
+  toMarkdown,
+} from "../evaluation/reporters";
 import { runCanaries } from "../evaluation/runner";
 import { validateEvaluationResult } from "../evaluation/schema";
 import type { CanaryAdapter, EvaluationResult } from "../evaluation/types";
+import {
+  allowTaskAuthority,
+  createTaskAuthorityScope,
+} from "../electron/permission-lifecycle";
 
 test("the permanent spine defines exactly the five baseline canaries", () => {
   assert.deepEqual(
@@ -108,4 +118,188 @@ test("JSON Schema requires every evaluation field", async () => {
     "outcome",
     "verificationEvidence",
   ]);
+});
+
+test("opt-in live mode stays honest and does not invoke an unconfigured runtime", async () => {
+  const results = await runCanaries(canaryCases, createSafeLiveCanaryAdapter());
+
+  assert.equal(results.length, 5);
+  for (const result of results) {
+    assert.deepEqual(validateEvaluationResult(result), []);
+    assert.equal(result.mode, "live-runtime");
+    assert.equal(result.outcome.status, "pending");
+    assert.equal(result.outcome.verdict, "not-run");
+    assert.equal(result.input.status, "pending");
+    assert.equal(result.toolCalls.status, "pending");
+    assert.match(result.outcome.summary, /No safe live runtime was configured/);
+    assert.equal(result.verificationEvidence[0]?.status, "pending");
+  }
+});
+
+test("safe live adapter routes pre-authorized runtime telemetry through kernel verification", async () => {
+  const canary = canaryCases.find((item) => item.id === "approval-pause")!;
+  const now = new Date("2026-01-01T09:00:00.000Z");
+  const scope = createTaskAuthorityScope({
+    taskId: "live-canary-test",
+    goal: canary.prompt,
+    taskKind: "general",
+  });
+  const execution = {
+    kind: "general" as const,
+    taskId: "live-canary-test",
+    authority: allowTaskAuthority(
+      scope,
+      now,
+      new Date("2026-01-01T11:00:00.000Z"),
+    ),
+  };
+  let calls = 0;
+  const runtime: SafeCanaryRuntime = {
+    async run(context) {
+      calls += 1;
+      context.turnStarted();
+      context.event("approval-requested");
+      return {
+        summary: "Waiting for approval.",
+        outputText: "Waiting for approval.",
+        verified: true,
+        verificationEvidence: [{
+          id: "live.worker-contract",
+          kind: "worker-contract",
+          source: "safe-canary-runtime",
+          polarity: "supports",
+          strength: "direct",
+          statement: "The safe canary runtime stopped at the approval boundary.",
+        }],
+        usage: {
+          inputTokens: 24,
+          cachedInputTokens: 9,
+          outputTokens: 8,
+          reasoningOutputTokens: 3,
+          totalTokens: 35,
+        },
+        timing: {
+          startupMs: 2,
+          executionMs: 7,
+          settlingMs: 1,
+          shutdownMs: 1,
+          totalMs: 11,
+        },
+      };
+    },
+  };
+
+  const [result] = await runCanaries([canary], createSafeLiveCanaryAdapter({
+    runtime,
+    execution,
+    now: () => now,
+  }));
+
+  assert.equal(calls, 1);
+  assert.equal(result.outcome.verdict, "pass");
+  assert.equal(result.input.value, 24);
+  assert.equal(result.cachedInput.value, 9);
+  assert.equal(result.freshInput.value, 15);
+  assert.equal(result.output.value, 8);
+  assert.equal(result.reasoning.value, 3);
+  assert.equal(result.turns.value, 1);
+  assert.equal(result.toolCalls.value, 0);
+  assert.equal(result.latency.value, 11);
+  assert.ok(result.verificationEvidence.some((item) => /Kernel verifier decision: verified/.test(item.detail)));
+  assert.deepEqual(validateEvaluationResult(result), []);
+});
+
+test("safe live adapter refuses connector/computer execution before calling the runtime", async () => {
+  const canary = canaryCases[0]!;
+  let calls = 0;
+  const now = new Date("2026-01-01T09:00:00.000Z");
+  const connectorCall = {
+    service: "personal-mail",
+    action: "send",
+    mode: "write" as const,
+    arguments: {},
+    label: "Personal mail",
+  };
+  const connectorScope = createTaskAuthorityScope({
+    taskId: "blocked-live-canary",
+    goal: canary.prompt,
+    taskKind: "connector",
+    connectorCall,
+  });
+  const runtime: SafeCanaryRuntime = {
+    async run() {
+      calls += 1;
+      return { summary: "unexpected", verified: true };
+    },
+  };
+  const result = await runCanaries([canary], createSafeLiveCanaryAdapter({
+    runtime,
+    execution: {
+      kind: "connector",
+      connectorCall,
+      taskId: "blocked-live-canary",
+      authority: allowTaskAuthority(
+        connectorScope,
+        now,
+        new Date("2026-01-01T11:00:00.000Z"),
+      ),
+    },
+  }));
+
+  assert.equal(calls, 0);
+  assert.equal(result[0]?.outcome.verdict, "not-run");
+  assert.match(result[0]?.outcome.summary ?? "", /outside the safe/);
+});
+
+test("live telemetry carries turn budgets into the integrated guardrail", async () => {
+  const canary = canaryCases[0]!;
+  const now = new Date("2026-01-01T09:00:00.000Z");
+  const scope = createTaskAuthorityScope({
+    taskId: "guarded-live-canary",
+    goal: canary.prompt,
+    taskKind: "general",
+  });
+  const runtime: SafeCanaryRuntime = {
+    async run(context) {
+      context.turnStarted();
+      context.turnStarted();
+      return { summary: "late result", verified: true };
+    },
+  };
+  const [result] = await runCanaries([canary], createSafeLiveCanaryAdapter({
+    runtime,
+    budgets: { maxTurns: 1 },
+    execution: {
+      kind: "general",
+      taskId: "guarded-live-canary",
+      authority: allowTaskAuthority(
+        scope,
+        now,
+        new Date("2026-01-01T11:00:00.000Z"),
+      ),
+    },
+    now: () => now,
+  }));
+
+  assert.equal(result.outcome.verdict, "fail");
+  assert.equal(result.toolCalls.value, 0);
+  assert.ok(result.verificationEvidence.some((item) => /guardrail triggered: turns/.test(item.detail)));
+});
+
+test("comparison output keeps unavailable metrics and exposes audit fields", async () => {
+  const [baseline] = await runCanaries([canaryCases[0]!], deterministicFixtureAdapter);
+  const candidate: EvaluationResult = {
+    ...baseline,
+    turns: { status: "measured", unit: "count", value: 2 },
+  };
+  const comparison = compareEvaluationRuns([baseline], [candidate], {
+    baseline: "before",
+    candidate: "after",
+  });
+
+  assert.equal(comparison.overallVerdict, "regression");
+  assert.equal(comparison.cases[0]?.metrics.turns.status, "regressed");
+  assert.equal(comparison.cases[0]?.metrics.input.status, "unavailable");
+  assert.match(toComparisonMarkdown(comparison), /Fresh input/);
+  assert.match(toComparisonMarkdown(comparison), /Verification evidence/);
 });

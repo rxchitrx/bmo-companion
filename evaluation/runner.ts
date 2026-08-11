@@ -30,25 +30,41 @@ function verify(
   observation: CanaryObservation,
   mode: EvaluationResult["mode"],
 ): VerificationEvidence[] {
-  const evidence: VerificationEvidence[] = [];
-  const expected = canary.expectation;
   const outputKind = mode === "deterministic-fixture" ? "fixture-output" : "runtime-output";
   const eventKind = mode === "deterministic-fixture" ? "fixture-event" : "runtime-event";
+  if (observation.skipped) {
+    return [{
+      status: "pending",
+      kind: eventKind,
+      detail: `Canary was not run: ${observation.skipped.reason}`,
+    }];
+  }
+
+  const evidence: VerificationEvidence[] = [];
+  const expected = canary.expectation;
 
   if (expected.outputExact !== undefined) {
+    const status = observation.outputText === undefined && mode === "live-runtime"
+      ? "pending"
+      : "measured";
     evidence.push({
-      status: "measured",
+      status,
       kind: outputKind,
       detail:
-        observation.outputText === expected.outputExact
+        observation.outputText === undefined
+          ? "Runtime output is awaiting live telemetry."
+          : observation.outputText === expected.outputExact
           ? `Output matched ${JSON.stringify(expected.outputExact)}.`
           : `Output mismatch: expected ${JSON.stringify(expected.outputExact)}, received ${JSON.stringify(observation.outputText)}.`,
     });
   }
 
   if (expected.maxToolCalls !== undefined) {
+    const status = observation.telemetry?.toolCalls?.status === "pending"
+      ? "pending"
+      : "measured";
     evidence.push({
-      status: "measured",
+      status,
       kind: eventKind,
       detail: `${observation.toolCallNames.length} tool calls observed; budget is ${expected.maxToolCalls}.`,
     });
@@ -74,6 +90,14 @@ function verify(
     });
   }
 
+  if (observation.runtimeOutcome === "unverified") {
+    evidence.push({
+      status: "measured",
+      kind: "runtime-output",
+      detail: "The integrated kernel verifier returned an unverified outcome.",
+    });
+  }
+
   if (expected.connectorDiscoveryBytesMax !== undefined) {
     const actual = observation.connectorDiscoveryBytes;
     evidence.push({
@@ -86,10 +110,11 @@ function verify(
     });
   }
 
-  return evidence;
+  return [...evidence, ...(observation.verificationEvidence ?? [])];
 }
 
 function passed(canary: CanaryCase, observation: CanaryObservation): boolean {
+  if (observation.skipped || observation.runtimeOutcome === "unverified") return false;
   const expected = canary.expectation;
   return (
     (expected.outputExact === undefined || observation.outputText === expected.outputExact) &&
@@ -108,7 +133,14 @@ export async function runCanary(
 ): Promise<EvaluationResult> {
   const observation = await adapter.run(canary);
   const telemetry = observation.telemetry ?? {};
-  const verdict = passed(canary, observation) ? "pass" : "fail";
+  const skipped = observation.skipped !== undefined;
+  const verdict = skipped ? "not-run" : passed(canary, observation) ? "pass" : "fail";
+  const outcomeStatus = skipped ? "pending" : "measured";
+  const pendingToolCalls = {
+    status: "pending" as const,
+    unit: "count" as const,
+    note: "Tool-call count is unavailable because the live canary did not run.",
+  };
 
   return {
     caseId: canary.id,
@@ -124,7 +156,13 @@ export async function runCanary(
       telemetry.reasoning ?? missingTokens("Reasoning-token", adapter.mode),
     turns:
       telemetry.turns ??
-      (adapter.mode === "deterministic-fixture"
+      (skipped
+        ? {
+            status: "pending",
+            unit: "count",
+            note: "Turn count is unavailable because the live canary did not run.",
+          }
+        : adapter.mode === "deterministic-fixture"
         ? { status: "measured", unit: "count", value: 1 }
         : {
             status: "pending",
@@ -132,17 +170,19 @@ export async function runCanary(
             note: "Turn count is awaiting live runtime telemetry.",
           }),
     toolCalls:
-      telemetry.toolCalls ?? {
+      telemetry.toolCalls ?? (skipped ? pendingToolCalls : {
         status: "measured",
         unit: "count",
         value: observation.toolCallNames.length,
-      },
+      }),
     latency: telemetry.latency ?? pendingLatency(),
     outcome: {
-      status: "measured",
+      status: outcomeStatus,
       verdict,
       summary:
-        adapter.mode === "deterministic-fixture"
+        skipped
+          ? `Live runtime ${canary.name} was not run: ${observation.skipped?.reason}`
+          : adapter.mode === "deterministic-fixture"
           ? `${verdict === "pass" ? "Passed" : "Failed"} deterministic ${canary.name} contract; this is not a live runtime result.`
           : `${verdict === "pass" ? "Passed" : "Failed"} live runtime ${canary.name} canary.`,
     },
