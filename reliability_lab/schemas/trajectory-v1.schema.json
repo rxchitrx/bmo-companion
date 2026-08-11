@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmo.local/schemas/trajectory-v1.schema.json",
+  "title": "BMO Privacy-Safe Trajectory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recordType",
+    "trajectoryId",
+    "privacy",
+    "task",
+    "context",
+    "events",
+    "selectedCapabilities",
+    "usageDeltas",
+    "guardrailOutcomes",
+    "verificationEvidence",
+    "userCorrections"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "recordType": { "const": "bmo.trajectory" },
+    "trajectoryId": { "$ref": "#/$defs/safeId" },
+    "privacy": { "$ref": "#/$defs/privacy" },
+    "task": { "$ref": "#/$defs/task" },
+    "context": { "$ref": "#/$defs/context" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "selectedCapabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "usageDeltas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/usageDelta" }
+    },
+    "guardrailOutcomes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/guardrail" }
+    },
+    "verificationDecision": { "$ref": "#/$defs/verificationDecision" },
+    "verificationEvidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verificationEvidence" }
+    },
+    "userCorrections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/userCorrection" }
+    }
+  },
+  "$defs": {
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chars", "utf8Bytes", "sha256"],
+      "properties": {
+        "chars": { "type": "integer", "minimum": 0 },
+        "utf8Bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{12,64}$" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawContent",
+        "rawToolData",
+        "personalData",
+        "replayExecutesTools",
+        "replayUsesLiveServices",
+        "replayUsesComputerUse"
+      ],
+      "properties": {
+        "rawContent": { "const": false },
+        "rawToolData": { "const": false },
+        "personalData": { "const": false },
+        "replayExecutesTools": { "const": false },
+        "replayUsesLiveServices": { "const": false },
+        "replayUsesComputerUse": { "const": false }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "goal", "kind"],
+      "properties": {
+        "taskId": { "$ref": "#/$defs/digest" },
+        "goal": { "$ref": "#/$defs/digest" },
+        "kind": { "$ref": "#/$defs/safeId" },
+        "model": { "$ref": "#/$defs/safeId" },
+        "effort": { "$ref": "#/$defs/safeId" }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segments"],
+      "properties": {
+        "packetVersion": { "$ref": "#/$defs/safeId" },
+        "itemCount": { "type": "integer", "minimum": 0 },
+        "usedContentChars": { "type": "integer", "minimum": 0 },
+        "segments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/contextSegment" }
+        }
+      }
+    },
+    "contextSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "provenance", "measurement"],
+      "properties": {
+        "name": { "$ref": "#/$defs/safeId" },
+        "source": { "$ref": "#/$defs/safeId" },
+        "provenance": { "$ref": "#/$defs/safeId" },
+        "measurement": { "$ref": "#/$defs/safeId" },
+        "chars": { "type": "integer", "minimum": 0 },
+        "utf8Bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "itemCount": { "type": "integer", "minimum": 0 },
+        "budgetChars": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "scalarOrDigest": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "type", "metadata"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/safeId" },
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/scalarOrDigest" }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "reason"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "source": { "enum": ["context-packet", "connector-selector"] },
+        "reason": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "usageDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "cachedInputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "reasoningOutputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "action", "reason", "observed", "limit", "summaryDigest"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "action": { "enum": ["stop", "summarize", "needs-decision"] },
+        "reason": { "enum": ["tokens", "time", "tool-calls", "turns", "loop", "repeated-failures"] },
+        "observed": { "type": "integer", "minimum": 0 },
+        "limit": { "type": "integer", "minimum": 0 },
+        "summaryDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "verificationDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "status", "reasonCodes", "evidence"],
+      "properties": {
+        "version": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["verified", "unverified"] },
+        "reasonCodes": { "type": "array", "items": { "$ref": "#/$defs/safeId" } },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["considered", "supporting", "contradictory", "directSupporting"],
+          "properties": {
+            "considered": { "type": "integer", "minimum": 0 },
+            "supporting": { "type": "integer", "minimum": 0 },
+            "contradictory": { "type": "integer", "minimum": 0 },
+            "directSupporting": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "verificationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "polarity", "strength", "statementDigest"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeId" },
+        "kind": { "$ref": "#/$defs/safeId" },
+        "source": { "$ref": "#/$defs/safeId" },
+        "polarity": { "enum": ["supports", "contradicts"] },
+        "strength": { "enum": ["direct", "indirect"] },
+        "statementDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "userCorrection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "kind", "correctionDigest"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["approval", "scope-change", "stop", "cancel", "resume", "retry", "other"] },
+        "correctionDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

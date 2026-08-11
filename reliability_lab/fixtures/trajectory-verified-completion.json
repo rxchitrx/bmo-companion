@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "recordType": "bmo.trajectory",
+  "trajectoryId": "verified-completion",
+  "privacy": {
+    "rawContent": false,
+    "rawToolData": false,
+    "personalData": false,
+    "replayExecutesTools": false,
+    "replayUsesLiveServices": false,
+    "replayUsesComputerUse": false
+  },
+  "task": {
+    "taskId": {
+      "chars": 21,
+      "utf8Bytes": 21,
+      "sha256": "736ff0fce043ee1947d41fdb550158aabaf95ba4c5e0fc0788daa20e0456ef2c"
+    },
+    "goal": {
+      "chars": 34,
+      "utf8Bytes": 34,
+      "sha256": "0d3eddfe2034a1188b64f8ba38cd31b1e66f3df428edc19c7fa7b3accf35934b"
+    },
+    "kind": "general",
+    "model": "fixture-model",
+    "effort": "low"
+  },
+  "context": {
+    "packetVersion": "1",
+    "itemCount": 1,
+    "usedContentChars": 34,
+    "segments": [
+      {
+        "name": "task_goal",
+        "source": "fixture",
+        "provenance": "user",
+        "measurement": "exact-visible",
+        "chars": 34,
+        "utf8Bytes": 34,
+        "sha256": "0d3eddfe2034a1188b64f8ba38cd31b1e66f3df428edc19c7fa7b3accf35934b"
+      }
+    ]
+  },
+  "events": [
+    { "sequence": 1, "type": "task.created", "metadata": {} },
+    { "sequence": 2, "type": "task.approved", "metadata": {} },
+    {
+      "sequence": 3,
+      "type": "kernel.permission_decided",
+      "metadata": { "decision": "allow", "reason": "authority-allowed" }
+    },
+    {
+      "sequence": 4,
+      "type": "kernel.worker_started",
+      "metadata": { "workerId": "codex-task" }
+    },
+    {
+      "sequence": 5,
+      "type": "kernel.worker_completed",
+      "metadata": { "verifiedClaim": true, "reconciliationRequired": false }
+    },
+    {
+      "sequence": 6,
+      "type": "kernel.outcome_verified",
+      "metadata": { "outcomeStatus": "verified", "artifactCount": 0 }
+    },
+    {
+      "sequence": 7,
+      "type": "task.completed",
+      "metadata": { "status": "completed" }
+    }
+  ],
+  "selectedCapabilities": [
+    {
+      "id": "codex.general",
+      "source": "context-packet",
+      "reason": {
+        "chars": 17,
+        "utf8Bytes": 17,
+        "sha256": "dc0e8cd87e42f33e93c55a6fe330cacffbc2ae1fd4072f7081338ce3283667ae"
+      }
+    }
+  ],
+  "usageDeltas": [
+    {
+      "sequence": 1,
+      "inputTokens": 10,
+      "cachedInputTokens": 4,
+      "outputTokens": 2,
+      "reasoningOutputTokens": 1,
+      "totalTokens": 12
+    }
+  ],
+  "guardrailOutcomes": [],
+  "verificationDecision": {
+    "version": 1,
+    "status": "verified",
+    "reasonCodes": [
+      "summary-present",
+      "direct-supporting-evidence",
+      "no-contradictory-evidence"
+    ],
+    "evidence": {
+      "considered": 1,
+      "supporting": 1,
+      "contradictory": 0,
+      "directSupporting": 1
+    }
+  },
+  "verificationEvidence": [
+    {
+      "id": "codex-task.verification-contract",
+      "kind": "worker-contract",
+      "source": "codex-task",
+      "polarity": "supports",
+      "strength": "direct",
+      "statementDigest": {
+        "chars": 31,
+        "utf8Bytes": 31,
+        "sha256": "65fa825163e754b6ec25652e745066e7d616d5185f853d6506c2ee19dcf1685f"
+      }
+    }
+  ],
+  "userCorrections": []
+}

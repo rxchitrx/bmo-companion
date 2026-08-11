@@ -23,6 +23,11 @@ Fixture passes prove only the evaluation contract and runner behavior. They are 
 
 Saved JSON results can be compared offline with the independent Python Reliability Lab. See `reliability_lab/README.md`; the lab never invokes this runner or the realtime runtime itself.
 
+For privacy-safe lifecycle tracing and decision-path replay, see
+[TRAJECTORY-REPLAY.md](./TRAJECTORY-REPLAY.md). Trajectory replay is a separate
+fixture state-machine check; it does not turn deterministic evaluation results
+into live runtime evidence.
+
 ## Missing telemetry
 
 Every result always contains:
