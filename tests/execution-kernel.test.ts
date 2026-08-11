@@ -6,6 +6,7 @@ import {
   executionResultToOutcome,
   type KernelLifecycleEvent,
 } from "../electron/execution-kernel.ts";
+import type { OutcomeVerifier, VerificationRequest } from "../electron/outcome-verifier.ts";
 import {
   allowTaskAuthority,
   createTaskAuthorityScope,
@@ -98,6 +99,11 @@ test("the production kernel runs one scoped worker through the complete typed fl
 
   assert.equal(workerCalls, 1);
   assert.equal(result.verified, true);
+  assert.equal(result.verificationDecision?.status, "verified");
+  assert.deepEqual(
+    result.verificationEvidence?.map((evidence) => evidence.id),
+    ["codex-task.verification-contract"],
+  );
   assert.equal(receivedExecution?.contextPacket?.purpose.taskKind, "coding");
   assert.deepEqual(receivedExecution?.capabilityManifest?.selectedCapabilityIds, [
     "codex.workspace",
@@ -233,23 +239,91 @@ test("a missing selected connector capability fails closed before worker executi
 });
 
 test("the VerifiedOutcome boundary downgrades contradictory or empty results", () => {
-  assert.deepEqual(
-    executionResultToOutcome({
+  const contradictory = executionResultToOutcome({
       summary: "VERIFIED OUTCOME: claimed",
       verified: true,
       reconciliationRequired: true,
-    }),
-    {
-      status: "unverified",
-      summary: "VERIFIED OUTCOME: claimed",
-      reason: "reconciliation-required",
-      artifactCount: 0,
-    },
-  );
+    });
+  assert.equal(contradictory.status, "unverified");
+  assert.equal(contradictory.status === "unverified" && contradictory.reason,
+    "reconciliation-required");
+  assert.deepEqual(contradictory.verification.reasons.map((reason) => reason.code), [
+    "reconciliation-required",
+    "contradictory-evidence",
+  ]);
   assert.equal(
     executionResultToOutcome({ summary: "", verified: true }).status,
     "unverified",
   );
+});
+
+test("explicit missing or contradictory worker evidence cannot inherit legacy verification", async () => {
+  const missing = await new MinimalExecutionKernel({
+    async execute() {
+      return {
+        summary: "Claimed complete.",
+        verified: true,
+        verificationEvidence: [],
+      };
+    },
+  }).execute("Check the outcome", new AbortController().signal, () => {});
+  assert.equal(missing.verified, false);
+  assert.deepEqual(missing.verificationDecision?.reasons.map((reason) => reason.code), [
+    "missing-evidence",
+  ]);
+
+  const contradictory = await new MinimalExecutionKernel({
+    async execute() {
+      return {
+        summary: "Claimed complete.",
+        verified: true,
+        verificationEvidence: [{
+          id: "state.not-satisfied",
+          kind: "state-observation",
+          source: "fixture",
+          polarity: "contradicts",
+          strength: "direct",
+          statement: "The requested condition was not present.",
+        }],
+      };
+    },
+  }).execute("Check the outcome", new AbortController().signal, () => {});
+  assert.equal(contradictory.verified, false);
+  assert.ok(contradictory.verificationDecision?.reasons.some((reason) =>
+    reason.code === "contradictory-evidence"));
+});
+
+test("the kernel's typed verifier decision is authoritative over the worker claim", async () => {
+  let received: VerificationRequest | undefined;
+  const verifier: OutcomeVerifier = {
+    verify(request) {
+      received = request;
+      return {
+        version: 1,
+        status: "unverified",
+        reasons: [{ code: "insufficient-direct-evidence", evidenceIds: [] }],
+        evidence: {
+          considered: request.evidence.length,
+          supporting: 0,
+          contradictory: 0,
+          directSupporting: 0,
+        },
+      };
+    },
+  };
+  const result = await new MinimalExecutionKernel({
+    async execute() {
+      return { summary: "Worker claimed completion.", verified: true };
+    },
+  }, { verifier }).execute(
+    "Verify one outcome",
+    new AbortController().signal,
+    () => {},
+  );
+  assert.equal(received?.workerClaimedVerified, true);
+  assert.equal(received?.evidence.length, 1);
+  assert.equal(result.verified, false);
+  assert.equal(result.verificationDecision?.status, "unverified");
 });
 
 test("kernel diagnostics contain context metadata but not raw Task values", async () => {

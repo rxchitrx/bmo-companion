@@ -16,6 +16,10 @@ import {
   revalidateTaskAuthority,
   type ScopedTaskAuthority,
 } from "./permission-lifecycle.js";
+import type {
+  VerificationDecision,
+  VerificationEvidence,
+} from "./outcome-verifier.js";
 
 export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
 
@@ -88,6 +92,8 @@ export interface ExecutionResult {
   summary: string;
   verified: boolean;
   reconciliationRequired?: boolean;
+  verificationEvidence?: VerificationEvidence[];
+  verificationDecision?: VerificationDecision;
   usage?: TokenUsage;
   accountUsage?: AccountUsage;
   timing?: TaskTiming;

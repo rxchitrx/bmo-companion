@@ -7,7 +7,8 @@ approved Tasks:
 2. Build one selection-only `ExecutionCapabilityManifest`.
 3. Invoke one scoped worker exactly once.
 4. Project versioned, ordered `KernelLifecycleEvent` records.
-5. Convert the worker result through one `VerifiedOutcome` boundary.
+5. Evaluate structured evidence through one deterministic verifier.
+6. Convert the verifier decision through one `VerifiedOutcome` boundary.
 
 `TaskRuntime` remains the owner of approval, cancellation, recovery, durable Task
 status and Activity Ledger writes. The kernel validates Task Runtime's scoped,
@@ -49,12 +50,12 @@ execution.
 
 ## VerifiedOutcome boundary
 
-A result crosses the boundary only when the single worker returns a non-empty
-summary, `verified: true`, and does not require reconciliation. Contradictory or
-empty results are normalized to an unverified outcome before `TaskRuntime`
-receives them. Codex still establishes its verified claim from protocol
-settlement plus the required output prefix; connector workers still establish it
-from the validated connector result.
+A result crosses the boundary only when the Task 7 verifier returns `verified`.
+The verifier requires a non-empty summary, the worker's verified claim, direct
+supporting evidence, no contradiction and no reconciliation requirement. Missing
+or contradictory evidence is normalized to an unverified outcome before
+`TaskRuntime` receives it. The typed evidence and decision contract is documented
+in [VERIFICATION-FRAMEWORK.md](./VERIFICATION-FRAMEWORK.md).
 
 ## Integration requirements
 
