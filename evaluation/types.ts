@@ -80,5 +80,7 @@ export interface CanaryObservation {
 
 export interface CanaryAdapter {
   mode: EvaluationResult["mode"];
+  /** Live adapters may serialize runs to bound quota and runtime concurrency. */
+  serial?: boolean;
   run(canary: CanaryCase): Promise<CanaryObservation>;
 }

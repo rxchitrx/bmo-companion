@@ -73,8 +73,12 @@ export interface SafeLiveCanaryAdapterOptions
   extends Pick<MinimalExecutionKernelOptions, "selectConnectorCapabilities" | "verifier" | "now" | "budgets"> {
   /** A pre-authorized execution scope. The adapter refuses to create one. */
   execution?: TaskExecutionOptions;
+  /** Optional prompt-bound execution scope resolver for a complete canary run. */
+  executionForCanary?: (canary: CanaryCase) => TaskExecutionOptions | undefined;
   /** The safe runtime is intentionally injected instead of discovered globally. */
   runtime?: SafeCanaryRuntime;
+  /** Optional per-canary runtime resolver for mixed live/local safety paths. */
+  runtimeForCanary?: (canary: CanaryCase) => SafeCanaryRuntime | undefined;
   /** Local, non-connector tool names allowed for telemetry. */
   allowedToolNames?: readonly string[];
 }
@@ -154,8 +158,11 @@ export function createSafeLiveCanaryAdapter(
 
   return {
     mode: "live-runtime",
+    serial: true,
     async run(canary): Promise<CanaryObservation> {
-      if (!options.runtime) {
+      const runtime = options.runtimeForCanary?.(canary) ?? options.runtime;
+      const execution = options.executionForCanary?.(canary) ?? options.execution;
+      if (!runtime) {
         return {
           events: [],
           toolCallNames: [],
@@ -165,7 +172,7 @@ export function createSafeLiveCanaryAdapter(
         };
       }
 
-      const executionReason = safeExecutionReason(options.execution);
+      const executionReason = safeExecutionReason(execution);
       if (executionReason) {
         return {
           events: [],
@@ -217,7 +224,7 @@ export function createSafeLiveCanaryAdapter(
           workerExecution,
         ): Promise<ExecutionResult> {
           currentExecution = workerExecution;
-          const result = await options.runtime!.run({
+          const result = await runtime.run({
             canary,
             signal,
             progress,
@@ -291,7 +298,7 @@ export function createSafeLiveCanaryAdapter(
           (accountUsage) => {
             runtimeAccountUsage.value = accountUsage;
           },
-          options.execution,
+          execution,
         );
       } catch (error) {
         return {

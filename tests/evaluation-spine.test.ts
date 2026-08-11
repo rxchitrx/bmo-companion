@@ -5,6 +5,7 @@ import { canaryCases } from "../evaluation/canaries";
 import { compareEvaluationRuns } from "../evaluation/comparison";
 import { deterministicFixtureAdapter } from "../evaluation/fixtures";
 import { createSafeLiveCanaryAdapter, type SafeCanaryRuntime } from "../evaluation/live-adapter";
+import { createPreAuthorizedLocalCanaryAdapter } from "../evaluation/local-host";
 import {
   toComparisonMarkdown,
   toJson,
@@ -302,4 +303,26 @@ test("comparison output keeps unavailable metrics and exposes audit fields", asy
   assert.equal(comparison.cases[0]?.metrics.input.status, "unavailable");
   assert.match(toComparisonMarkdown(comparison), /Fresh input/);
   assert.match(toComparisonMarkdown(comparison), /Verification evidence/);
+});
+
+test("local safe host covers non-model safety canaries without service access", async () => {
+  const selected = canaryCases.filter((item) => [
+    "approval-pause",
+    "stop-cancel",
+    "connector-discovery-budget",
+  ].includes(item.id));
+  const results = await runCanaries(selected, createPreAuthorizedLocalCanaryAdapter({
+    cwd: process.cwd(),
+    now: () => new Date("2026-01-01T09:00:00.000Z"),
+  }));
+
+  assert.deepEqual(results.map((result) => result.outcome.verdict), ["pass", "pass", "pass"]);
+  assert.deepEqual(results.map((result) => result.toolCalls.value), [0, 0, 1]);
+  assert.equal(results[2]?.latency.status, "measured");
+  assert.ok(results[2]?.verificationEvidence.some((item) => /Kernel verifier decision: verified/.test(item.detail)));
+  for (const result of results) {
+    assert.equal(result.input.status, "pending");
+    assert.equal(result.output.status, "pending");
+    assert.deepEqual(validateEvaluationResult(result), []);
+  }
 });

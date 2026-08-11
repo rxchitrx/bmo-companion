@@ -194,5 +194,10 @@ export async function runCanaries(
   canaries: readonly CanaryCase[],
   adapter: CanaryAdapter,
 ): Promise<EvaluationResult[]> {
+  if (adapter.serial) {
+    const results: EvaluationResult[] = [];
+    for (const canary of canaries) results.push(await runCanary(canary, adapter));
+    return results;
+  }
   return Promise.all(canaries.map((canary) => runCanary(canary, adapter)));
 }

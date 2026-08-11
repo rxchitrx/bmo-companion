@@ -33,6 +33,14 @@ Without an injected runtime, this command emits five `pending`/`not-run` results
 
 When a runtime is injected, the adapter routes it through `MinimalExecutionKernel`, captures kernel lifecycle events, uses the kernel verifier for settlement, and forwards turn/tool/usage callbacks to execution guardrails. Runtime fields that are not reported remain `pending`; no missing value is converted to zero.
 
+For an authorized local evaluation, the repository includes a stricter host adapter:
+
+```bash
+npm run eval:canaries -- --live-local-safe --json
+```
+
+This host creates only prompt-bound, general-task evaluation scopes. Zero-tool and ordinary conversation use the local Codex app-server with a read-only sandbox, disabled apps, and declined approval requests. Approval, stop/cancel, and connector-discovery checks use local bounded safety paths; they do not contact a connector or execute a service action. The flag is opt-in and may consume model quota for the two read-only turns.
+
 ## Before/after comparison
 
 Save two JSON runs, then compare them with the same repeatable CLI:

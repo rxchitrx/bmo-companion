@@ -3,6 +3,7 @@ import { canaryCases } from "./canaries";
 import { compareEvaluationRuns } from "./comparison";
 import { deterministicFixtureAdapter } from "./fixtures";
 import { createSafeLiveCanaryAdapter } from "./live-adapter";
+import { createPreAuthorizedLocalCanaryAdapter } from "./local-host";
 import {
   toComparisonJson,
   toComparisonMarkdown,
@@ -11,6 +12,16 @@ import {
 } from "./reporters";
 import { runCanaries } from "./runner";
 import { validateEvaluationResult } from "./schema";
+
+// Kernel diagnostics are useful during live runs but must not corrupt --json.
+const originalConsoleLog = console.log.bind(console);
+console.log = (...args: unknown[]) => {
+  if (typeof args[0] === "string" && args[0].startsWith("[BMO-DIAG]")) {
+    console.error(...args);
+    return;
+  }
+  originalConsoleLog(...args);
+};
 
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -51,8 +62,11 @@ if (process.argv.includes("--compare")) {
     : toComparisonMarkdown(comparison));
   if (comparison.overallVerdict === "regression") process.exitCode = 1;
 } else {
+  const localSafe = process.argv.includes("--live-local-safe");
   const live = process.argv.includes("--live");
-  const adapter = live
+  const adapter = localSafe
+    ? createPreAuthorizedLocalCanaryAdapter({ cwd: process.cwd() })
+    : live
     ? createSafeLiveCanaryAdapter()
     : deterministicFixtureAdapter;
   const results = await runCanaries(canaryCases, adapter);
