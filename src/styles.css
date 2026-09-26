@@ -29,6 +29,7 @@ button { cursor: pointer; }
 .stage {
   min-height: 100%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   align-items: center;
   justify-items: center;
@@ -52,8 +53,10 @@ button { cursor: pointer; }
 }
 
 .status-line {
-  width: min(66rem, 92vw);
-  display: flex;
+  width: min(96rem, 92vw);
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.7rem;
   text-transform: uppercase;
@@ -62,8 +65,16 @@ button { cursor: pointer; }
   font-weight: 700;
 }
 
+.status-summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
 .status-dot {
   width: 0.7rem;
+  flex: 0 0 0.7rem;
   aspect-ratio: 1;
   border-radius: 50%;
   background: oklch(61% 0.13 168);
@@ -82,6 +93,8 @@ button { cursor: pointer; }
 .usage-strip {
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 0.35rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.07em;
@@ -135,8 +148,10 @@ button { cursor: pointer; }
 
 .voice-controls {
   margin-left: auto;
+  min-width: 0;
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 0.5rem;
   letter-spacing: normal;
   text-transform: none;
@@ -374,9 +389,9 @@ button { cursor: pointer; }
 }
 
 @media (max-width: 1180px) {
-  .status-line { width: 96vw; gap: 0.4rem; }
+  .status-line { width: 100%; gap: 0.4rem; }
   .usage-pill { padding-inline: 0.28rem; font-size: 0.58rem; }
-  .microphone-control { min-width: 24rem; }
+  .microphone-control { min-width: min(24rem, 100%); }
 }
 
 .microphone-icon {
@@ -643,12 +658,28 @@ button:disabled { cursor: not-allowed; opacity: 0.52; transform: none; box-shado
 @media (max-height: 760px) {
   .console { min-height: 25rem; width: min(54rem, 72vw); height: 65vh; }
 }
+@media (max-width: 1600px) {
+  .status-line {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    row-gap: 0.55rem;
+  }
+  .status-summary { width: 100%; }
+  .usage-strip {
+    justify-content: flex-start;
+  }
+  .voice-controls {
+    width: 100%;
+    margin-left: 0;
+    align-items: center;
+  }
+}
+
 @media (max-width: 960px) {
-  .status-line { flex-wrap: wrap; }
-  .voice-controls { width: 100%; }
   .microphone-control {
     min-width: 0;
-    flex: 1;
+    flex: 1 1 14rem;
     grid-template-columns: auto minmax(4rem, 1fr) minmax(7rem, 1.35fr);
   }
 }

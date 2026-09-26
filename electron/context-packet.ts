@@ -19,7 +19,7 @@ export interface ContextPacketManifestEntry {
 }
 
 export interface ContextPacketCapabilityReference {
-  id: "codex.general" | "codex.workspace" | "codex.computer_use";
+  id: "codex.general" | "bmo.code_workspace" | "codex.computer_use";
   reason: string;
 }
 
@@ -101,8 +101,8 @@ function capabilityReferences(
   if (kind === "connector") return [];
   if (kind === "coding") {
     return [{
-      id: "codex.workspace",
-      reason: "The Task explicitly requires source-code or workspace work.",
+      id: "bmo.code_workspace",
+      reason: "The Task explicitly requires work in BMO's isolated code workspace.",
     }];
   }
   if (kind === "computer" || kind === "browser") {

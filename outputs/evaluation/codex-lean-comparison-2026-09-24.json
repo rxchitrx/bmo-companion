@@ -1,0 +1,398 @@
+{
+  "schemaVersion": "bmo-codex-ablation-lab/1",
+  "createdAt": "2026-09-23T18:29:28.531Z",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "repetitionsPerArm": 5,
+  "runtimeSha256": "c67698d0990aae05211d9c43ab343ad9517e406824dea77eca103a2806232b3a",
+  "configurationSha256": "7b8d9a0c985b562f3e2b664325853a0fc13a7c56389255a63522031c17733ca0",
+  "measurement": "Codex app-server thread/tokenUsage/updated totals; repeated fresh process and ephemeral thread per sample.",
+  "limitations": [
+    "This measures the BMO typed-chat Codex app-server path; realtime voice uses a different protocol and is not token-compared here.",
+    "The Codex runtime's internal system instructions and token-by-token composition are not exposed by this protocol.",
+    "Difference between arms estimates BMO-added prompt/tool-schema cost. The minimum arm is a measured Codex runtime floor, not a pure separation of every Codex-internal source.",
+    "Conversation history is empty in all arms; later turns in a persistent conversation can cost more."
+  ],
+  "failures": [],
+  "arms": [
+    {
+      "id": "baseline",
+      "status": "complete",
+      "description": "BMO typed chat with current Codex startup settings.",
+      "codexFlags": [],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 23400,
+        "samples": 5
+      },
+      "cachedInputTokens": {
+        "median": 22272,
+        "min": 22272,
+        "max": 22272,
+        "samples": 5
+      },
+      "freshInputTokens": {
+        "median": 1128,
+        "min": 1128,
+        "max": 1128,
+        "samples": 5
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 14,
+        "max": 17,
+        "samples": 5
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 5
+      },
+      "elapsedMs": {
+        "median": 8195,
+        "min": 6705,
+        "max": 9125,
+        "samples": 5
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 6705
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 17,
+          "elapsedMs": 9125
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 16,
+          "elapsedMs": 7955
+        },
+        {
+          "repetition": 4,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 8823
+        },
+        {
+          "repetition": 5,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 8195
+        }
+      ]
+    },
+    {
+      "id": "plugins-off",
+      "status": "complete",
+      "description": "Disable Codex plugins for this app-server process.",
+      "codexFlags": [
+        "--disable",
+        "plugins"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 22057,
+        "min": 22057,
+        "max": 22057,
+        "samples": 5
+      },
+      "cachedInputTokens": {
+        "median": 21248,
+        "min": 0,
+        "max": 21248,
+        "samples": 5
+      },
+      "freshInputTokens": {
+        "median": 809,
+        "min": 809,
+        "max": 22057,
+        "samples": 5
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 12,
+        "max": 14,
+        "samples": 5
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 5
+      },
+      "elapsedMs": {
+        "median": 7569,
+        "min": 6077,
+        "max": 26997,
+        "samples": 5
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 22057,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 22057,
+          "outputTokens": 14,
+          "elapsedMs": 6429
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 22057,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 809,
+          "outputTokens": 14,
+          "elapsedMs": 6077
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 22057,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 809,
+          "outputTokens": 14,
+          "elapsedMs": 26997
+        },
+        {
+          "repetition": 4,
+          "inputTokens": 22057,
+          "cachedInputTokens": 11008,
+          "freshInputTokens": 11049,
+          "outputTokens": 12,
+          "elapsedMs": 7998
+        },
+        {
+          "repetition": 5,
+          "inputTokens": 22057,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 809,
+          "outputTokens": 14,
+          "elapsedMs": 7569
+        }
+      ]
+    },
+    {
+      "id": "skill-catalog-128",
+      "status": "complete",
+      "description": "Cap available skill metadata at 128 tokens.",
+      "codexFlags": [
+        "--config",
+        "skills.max_context_tokens=128"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 17708,
+        "min": 17708,
+        "max": 17708,
+        "samples": 5
+      },
+      "cachedInputTokens": {
+        "median": 12032,
+        "min": 12032,
+        "max": 17152,
+        "samples": 5
+      },
+      "freshInputTokens": {
+        "median": 5676,
+        "min": 556,
+        "max": 5676,
+        "samples": 5
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 10,
+        "max": 15,
+        "samples": 5
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 5
+      },
+      "elapsedMs": {
+        "median": 7951,
+        "min": 6893,
+        "max": 9505,
+        "samples": 5
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 17708,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 5676,
+          "outputTokens": 14,
+          "elapsedMs": 7074
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 17708,
+          "cachedInputTokens": 17152,
+          "freshInputTokens": 556,
+          "outputTokens": 12,
+          "elapsedMs": 6893
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 17708,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 5676,
+          "outputTokens": 10,
+          "elapsedMs": 9505
+        },
+        {
+          "repetition": 4,
+          "inputTokens": 17708,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 5676,
+          "outputTokens": 15,
+          "elapsedMs": 7951
+        },
+        {
+          "repetition": 5,
+          "inputTokens": 17708,
+          "cachedInputTokens": 17152,
+          "freshInputTokens": 556,
+          "outputTokens": 15,
+          "elapsedMs": 8717
+        }
+      ]
+    },
+    {
+      "id": "lean-conversation",
+      "status": "complete",
+      "description": "Disable plugins and cap skill catalog metadata at 128 tokens for BMO typed conversation.",
+      "codexFlags": [
+        "--disable",
+        "plugins",
+        "--config",
+        "skills.max_context_tokens=128"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 16491,
+        "min": 16491,
+        "max": 16491,
+        "samples": 5
+      },
+      "cachedInputTokens": {
+        "median": 1792,
+        "min": 0,
+        "max": 16128,
+        "samples": 5
+      },
+      "freshInputTokens": {
+        "median": 14699,
+        "min": 363,
+        "max": 16491,
+        "samples": 5
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 12,
+        "max": 15,
+        "samples": 5
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 5
+      },
+      "elapsedMs": {
+        "median": 7717,
+        "min": 6193,
+        "max": 9007,
+        "samples": 5
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 16491,
+          "cachedInputTokens": 1792,
+          "freshInputTokens": 14699,
+          "outputTokens": 12,
+          "elapsedMs": 9007
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 16491,
+          "cachedInputTokens": 11008,
+          "freshInputTokens": 5483,
+          "outputTokens": 12,
+          "elapsedMs": 6193
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 16491,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 16491,
+          "outputTokens": 15,
+          "elapsedMs": 7795
+        },
+        {
+          "repetition": 4,
+          "inputTokens": 16491,
+          "cachedInputTokens": 16128,
+          "freshInputTokens": 363,
+          "outputTokens": 14,
+          "elapsedMs": 7611
+        },
+        {
+          "repetition": 5,
+          "inputTokens": 16491,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 16491,
+          "outputTokens": 14,
+          "elapsedMs": 7717
+        }
+      ]
+    }
+  ],
+  "deltas": {
+    "plugins-off": {
+      "median": -1343,
+      "min": -1343,
+      "max": -1343,
+      "samples": 5
+    },
+    "skill-catalog-128": {
+      "median": -5692,
+      "min": -5692,
+      "max": -5692,
+      "samples": 5
+    },
+    "lean-conversation": {
+      "median": -6909,
+      "min": -6909,
+      "max": -6909,
+      "samples": 5
+    }
+  }
+}

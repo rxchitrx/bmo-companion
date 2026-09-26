@@ -11,7 +11,10 @@
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p evaluation/tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:reliability": "python3 -m unittest discover -s tests_python -v",
-    "eval:canaries": "tsx evaluation/cli.ts"
+    "eval:canaries": "tsx evaluation/cli.ts",
+    "eval:tool-schemas": "tsx evaluation/tool-schema-lab.ts",
+    "eval:coding-agents": "tsx evaluation/coding-agent-compare.ts",
+    "eval:pi-coding-live": "tsx evaluation/pi-coding-adapter-live.ts"
   },
   "dependencies": {
     "electron": "^35.7.5",

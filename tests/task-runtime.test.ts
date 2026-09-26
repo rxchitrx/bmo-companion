@@ -73,7 +73,7 @@ test("a Task freezes its selected capability model through approval and executio
   assert.equal(receivedModel?.kind, "coding");
   assert.equal(receivedModel?.taskId, task.id);
   assert.equal(receivedModel?.authority?.decision, "allow");
-  assert.deepEqual(receivedModel?.authority?.scope.capabilityIds, ["codex.workspace"]);
+  assert.deepEqual(receivedModel?.authority?.scope.capabilityIds, ["bmo.code_workspace"]);
 });
 
 test("task usage is published live and persisted with the verified outcome", async () => {
@@ -323,6 +323,51 @@ test("an explicit retry carries the authoritative prior outcome into one new app
   assert.equal(executions[1]?.retryOf, first.id);
   assert.match(String(executions[1]?.priorOutcome), /RECONCILIATION/);
   assert.equal(store.value?.task.status, "completed");
+});
+
+test("an ambiguous connected-service write cannot be retried before external reconciliation", async () => {
+  const ledger = new MemoryLedger();
+  let executions = 0;
+  const runtime = new TaskRuntime(
+    {
+      async execute() {
+        executions += 1;
+        return {
+          summary: "UNVERIFIED: delivery may have happened before the connection ended.",
+          verified: false,
+          reconciliationRequired: true,
+        };
+      },
+    },
+    ledger,
+    () => {},
+    undefined,
+    undefined,
+    {
+      async observe() { return { scopeStillMatches: false }; },
+      async reconcile() { return { detail: "STATE UNKNOWN: inspect the remote record." }; },
+    },
+  );
+  const task = await runtime.create("Post one issue comment", {
+    kind: "connector",
+    connectorCall: {
+      service: "github",
+      action: "comment_issue",
+      arguments: { repo: "owner/repo", number: 7, body: "Approved comment" },
+      mode: "write",
+      label: "GitHub",
+    },
+  });
+  await runtime.approve(task.id);
+  assert.equal(runtime.currentTask()?.status, "needs_decision");
+
+  await assert.rejects(
+    runtime.createRetry(task.id, task.goal),
+    /may already exist|Inspect the external result|will not replay/i,
+  );
+  assert.equal(executions, 1);
+  assert.equal(runtime.currentTask()?.status, "needs_decision");
+  assert.equal(ledger.events.some((event) => event.type === "task.created" && event.retryOf === task.id), false);
 });
 
 test("denial leaves the Mac unchanged and records cancellation", async () => {

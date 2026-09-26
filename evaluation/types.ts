@@ -37,6 +37,31 @@ export interface EvaluationResult {
   verificationEvidence: VerificationEvidence[];
 }
 
+/** Run-level provenance required to decide whether two experiments are comparable. */
+export interface EvaluationRun {
+  schemaVersion: "2.0";
+  metadata: {
+    runId: string;
+    createdAt: string;
+    mode: EvaluationResult["mode"];
+    runtime: string;
+    model: string;
+    reasoningEffort: string;
+    codeRevision: string;
+    configurationFingerprint: string;
+    evaluationFingerprint: string;
+    modelMeasuredCaseIds: string[];
+    repetition: number;
+    canarySet: string[];
+  };
+  results: EvaluationResult[];
+}
+
+export interface EvaluationSeries {
+  schemaVersion: "2.0";
+  runs: EvaluationRun[];
+}
+
 export type CanaryOutputContract = "short-greeting";
 
 export interface CanaryExpectation {

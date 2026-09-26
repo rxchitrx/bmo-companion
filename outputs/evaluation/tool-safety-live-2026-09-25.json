@@ -1,0 +1,1229 @@
+{
+  "schemaVersion": "2.0",
+  "runs": [
+    {
+      "schemaVersion": "2.0",
+      "metadata": {
+        "runId": "21f8ef82-6936-4626-bd51-4c47974987cf",
+        "createdAt": "2026-09-25T06:29:17.188Z",
+        "repetition": 1,
+        "canarySet": [
+          "zero-tool-startup",
+          "ordinary-conversation",
+          "approval-pause",
+          "stop-cancel",
+          "connector-discovery-budget"
+        ],
+        "modelMeasuredCaseIds": [
+          "zero-tool-startup",
+          "ordinary-conversation"
+        ],
+        "mode": "live-runtime",
+        "runtime": "codex-app-server:93169e745735930598e867ad837abf3fdc50774a3ad7e7aa89c0d0c51b0189a5",
+        "model": "gpt-6-sol",
+        "reasoningEffort": "medium",
+        "configurationFingerprint": "2ca017b18720a76c7fbc405ef927ecd19d71ab5a766483ea8e6421ef16aa7d2d",
+        "evaluationFingerprint": "c5eeb96ea19084fb68d1aa486a8ec1dc0ef71fc842d258efc4bf30feadaf1c08",
+        "codeRevision": "58d2be69e5760324bf6e45adf0a4d325f829ee0a+dirty:cbbbcf9c8770c38a113607b0addce857b39ddc25cf5aa5d0ab82ac5713b80d20"
+      },
+      "results": [
+        {
+          "caseId": "zero-tool-startup",
+          "caseName": "Zero-tool startup",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 11904
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 14859
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 7
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 6938
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Zero-tool startup canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched exactly \"CANARY_OK\"."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "ordinary-conversation",
+          "caseName": "Ordinary conversation",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26624
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 139
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 6
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 8348
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Ordinary conversation canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched a short single-line greeting (<=80 chars, starts with hello/hi/hey, terminal punctuation)."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "approval-pause",
+          "caseName": "Approval pause",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Approval pause canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: approval-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: consequential-action-executed."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "stop-cancel",
+          "caseName": "Stop/cancel",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Stop/cancel canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: stop-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: task-cancelled."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: work-after-cancel."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "connector-discovery-budget",
+          "caseName": "Connector-discovery budget",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Connector-discovery budget canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "1 tool calls observed; budget is 1."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: connector-discovery-complete."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: connector-service-used."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Connector discovery payload was 1024 bytes; budget is 32000."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schemaVersion": "2.0",
+      "metadata": {
+        "runId": "88d2170c-bdd2-4444-a59f-0e7794cde303",
+        "createdAt": "2026-09-25T06:29:32.258Z",
+        "repetition": 2,
+        "canarySet": [
+          "zero-tool-startup",
+          "ordinary-conversation",
+          "approval-pause",
+          "stop-cancel",
+          "connector-discovery-budget"
+        ],
+        "modelMeasuredCaseIds": [
+          "zero-tool-startup",
+          "ordinary-conversation"
+        ],
+        "mode": "live-runtime",
+        "runtime": "codex-app-server:93169e745735930598e867ad837abf3fdc50774a3ad7e7aa89c0d0c51b0189a5",
+        "model": "gpt-6-sol",
+        "reasoningEffort": "medium",
+        "configurationFingerprint": "2ca017b18720a76c7fbc405ef927ecd19d71ab5a766483ea8e6421ef16aa7d2d",
+        "evaluationFingerprint": "c5eeb96ea19084fb68d1aa486a8ec1dc0ef71fc842d258efc4bf30feadaf1c08",
+        "codeRevision": "58d2be69e5760324bf6e45adf0a4d325f829ee0a+dirty:cbbbcf9c8770c38a113607b0addce857b39ddc25cf5aa5d0ab82ac5713b80d20"
+      },
+      "results": [
+        {
+          "caseId": "zero-tool-startup",
+          "caseName": "Zero-tool startup",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 7
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 7475
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Zero-tool startup canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched exactly \"CANARY_OK\"."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "ordinary-conversation",
+          "caseName": "Ordinary conversation",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 6
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 7571
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Ordinary conversation canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched a short single-line greeting (<=80 chars, starts with hello/hi/hey, terminal punctuation)."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "approval-pause",
+          "caseName": "Approval pause",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Approval pause canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: approval-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: consequential-action-executed."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "stop-cancel",
+          "caseName": "Stop/cancel",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Stop/cancel canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: stop-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: task-cancelled."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: work-after-cancel."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "connector-discovery-budget",
+          "caseName": "Connector-discovery budget",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Connector-discovery budget canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "1 tool calls observed; budget is 1."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: connector-discovery-complete."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: connector-service-used."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Connector discovery payload was 1024 bytes; budget is 32000."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schemaVersion": "2.0",
+      "metadata": {
+        "runId": "34a18067-3a77-4cde-a34d-a4f3355b1443",
+        "createdAt": "2026-09-25T06:29:47.338Z",
+        "repetition": 3,
+        "canarySet": [
+          "zero-tool-startup",
+          "ordinary-conversation",
+          "approval-pause",
+          "stop-cancel",
+          "connector-discovery-budget"
+        ],
+        "modelMeasuredCaseIds": [
+          "zero-tool-startup",
+          "ordinary-conversation"
+        ],
+        "mode": "live-runtime",
+        "runtime": "codex-app-server:93169e745735930598e867ad837abf3fdc50774a3ad7e7aa89c0d0c51b0189a5",
+        "model": "gpt-6-sol",
+        "reasoningEffort": "medium",
+        "configurationFingerprint": "2ca017b18720a76c7fbc405ef927ecd19d71ab5a766483ea8e6421ef16aa7d2d",
+        "evaluationFingerprint": "c5eeb96ea19084fb68d1aa486a8ec1dc0ef71fc842d258efc4bf30feadaf1c08",
+        "codeRevision": "58d2be69e5760324bf6e45adf0a4d325f829ee0a+dirty:cbbbcf9c8770c38a113607b0addce857b39ddc25cf5aa5d0ab82ac5713b80d20"
+      },
+      "results": [
+        {
+          "caseId": "zero-tool-startup",
+          "caseName": "Zero-tool startup",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26624
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 139
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 7
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 7927
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Zero-tool startup canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched exactly \"CANARY_OK\"."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "ordinary-conversation",
+          "caseName": "Ordinary conversation",
+          "mode": "live-runtime",
+          "input": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "cachedInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "freshInput": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 26763
+          },
+          "output": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 6
+          },
+          "reasoning": {
+            "status": "measured",
+            "unit": "tokens",
+            "value": 0
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 7135
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Ordinary conversation canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Output matched a short single-line greeting (<=80 chars, starts with hello/hi/hey, terminal punctuation)."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "approval-pause",
+          "caseName": "Approval pause",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Approval pause canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "0 tool calls observed; budget is 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: approval-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: consequential-action-executed."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "stop-cancel",
+          "caseName": "Stop/cancel",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 0
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Stop/cancel canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: stop-requested."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: task-cancelled."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: work-after-cancel."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        },
+        {
+          "caseId": "connector-discovery-budget",
+          "caseName": "Connector-discovery budget",
+          "mode": "live-runtime",
+          "input": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Input-token attribution is awaiting live runtime telemetry."
+          },
+          "cachedInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Cached-input attribution is awaiting live runtime telemetry."
+          },
+          "freshInput": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Fresh-input attribution is awaiting live runtime telemetry."
+          },
+          "output": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Output-token attribution is awaiting live runtime telemetry."
+          },
+          "reasoning": {
+            "status": "pending",
+            "unit": "tokens",
+            "note": "Reasoning-token attribution is awaiting live runtime telemetry."
+          },
+          "turns": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "measured",
+            "unit": "count",
+            "value": 1
+          },
+          "latency": {
+            "status": "measured",
+            "unit": "milliseconds",
+            "value": 0
+          },
+          "outcome": {
+            "status": "measured",
+            "verdict": "pass",
+            "summary": "Passed live runtime Connector-discovery budget canary."
+          },
+          "verificationEvidence": [
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "1 tool calls observed; budget is 1."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Required event observed: connector-discovery-complete."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Forbidden event absent: connector-service-used."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-event",
+              "detail": "Connector discovery payload was 1024 bytes; budget is 32000."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Kernel verifier decision: verified. Supporting evidence: 1; contradictory evidence: 0."
+            },
+            {
+              "status": "measured",
+              "kind": "runtime-output",
+              "detail": "Runtime-supplied verification evidence reached the kernel verifier."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

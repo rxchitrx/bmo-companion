@@ -1,0 +1,259 @@
+{
+  "generatedAt": "2026-09-24T03:31:23.149Z",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "taskState": "[AUTHORITATIVE TASK STATE]\nNo Task exists.",
+  "prompts": [
+    "For this short experiment, remember that my code word is amber. Acknowledge in one short sentence.",
+    "Give me a one-sentence encouragement for starting a small task.",
+    "What was my code word? Answer with only the word.",
+    "Suggest one simple way to take a short break. One sentence.",
+    "For this experiment, remember that my lucky number is 17. Acknowledge in one short sentence.",
+    "Give me one short sentence to help me focus.",
+    "What was my code word? Answer with only the word.",
+    "What was my lucky number? Answer with only the number.",
+    "Suggest one way to organize a small to-do list. One sentence.",
+    "What were my code word and lucky number? Answer briefly."
+  ],
+  "arms": [
+    {
+      "id": "baseline",
+      "flags": []
+    },
+    {
+      "id": "lean",
+      "flags": [
+        "--disable",
+        "plugins",
+        "--config",
+        "skills.max_context_tokens=128"
+      ]
+    }
+  ],
+  "observations": {
+    "baseline": [
+      {
+        "turn": 1,
+        "inputTokens": 23414,
+        "cachedInputTokens": 1792,
+        "uncachedInputTokens": 21622,
+        "outputTokens": 24,
+        "elapsedMs": 10383,
+        "answer": "Got it, Rachit — I’ll remember that your code word is amber for this experiment.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 2,
+        "inputTokens": 30352,
+        "cachedInputTokens": 23296,
+        "uncachedInputTokens": 7056,
+        "outputTokens": 26,
+        "elapsedMs": 2370,
+        "answer": "You’ve got this, Rachit—just take the first tiny step, and the rest can follow.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 3,
+        "inputTokens": 30512,
+        "cachedInputTokens": 29440,
+        "uncachedInputTokens": 1072,
+        "outputTokens": 5,
+        "elapsedMs": 1777,
+        "answer": "amber",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 4,
+        "inputTokens": 30652,
+        "cachedInputTokens": 29440,
+        "uncachedInputTokens": 1212,
+        "outputTokens": 18,
+        "elapsedMs": 12793,
+        "answer": "Step away from your screen, stretch, and take three slow breaths.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 5,
+        "inputTokens": 30813,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 349,
+        "outputTokens": 24,
+        "elapsedMs": 2116,
+        "answer": "Got it, Rachit—I’ll remember that your lucky number is 17 for this experiment.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 6,
+        "inputTokens": 30969,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 505,
+        "outputTokens": 19,
+        "elapsedMs": 9338,
+        "answer": "Pick one small task, and give it your full attention for five minutes.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 7,
+        "inputTokens": 31122,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 658,
+        "outputTokens": 5,
+        "elapsedMs": 1723,
+        "answer": "amber",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 8,
+        "inputTokens": 31261,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 797,
+        "outputTokens": 5,
+        "elapsedMs": 2282,
+        "answer": "17",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 9,
+        "inputTokens": 31402,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 938,
+        "outputTokens": 22,
+        "elapsedMs": 2777,
+        "answer": "Write down your three most important tasks and number them in the order you’ll do them.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 10,
+        "inputTokens": 31558,
+        "cachedInputTokens": 30464,
+        "uncachedInputTokens": 1094,
+        "outputTokens": 18,
+        "elapsedMs": 1919,
+        "answer": "Your code word is amber, and your lucky number is 17.",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      }
+    ],
+    "lean": [
+      {
+        "turn": 1,
+        "inputTokens": 16505,
+        "cachedInputTokens": 0,
+        "uncachedInputTokens": 16505,
+        "outputTokens": 21,
+        "elapsedMs": 7474,
+        "answer": "Got it, Rachit — I’ll remember “amber” for this experiment.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 2,
+        "inputTokens": 16661,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 533,
+        "outputTokens": 20,
+        "elapsedMs": 2497,
+        "answer": "You’ve got this, Rachit—just start with one small step.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 3,
+        "inputTokens": 16815,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 687,
+        "outputTokens": 5,
+        "elapsedMs": 3607,
+        "answer": "amber",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 4,
+        "inputTokens": 16955,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 827,
+        "outputTokens": 15,
+        "elapsedMs": 2139,
+        "answer": "Step away from your screen and stretch for two minutes.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 5,
+        "inputTokens": 17113,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 985,
+        "outputTokens": 20,
+        "elapsedMs": 2262,
+        "answer": "Got it, Rachit — I’ll remember 17 for this experiment.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 6,
+        "inputTokens": 17265,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 1137,
+        "outputTokens": 18,
+        "elapsedMs": 2154,
+        "answer": "Pick one small task and give it your full attention for five minutes.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 7,
+        "inputTokens": 17417,
+        "cachedInputTokens": 16128,
+        "uncachedInputTokens": 1289,
+        "outputTokens": 5,
+        "elapsedMs": 1690,
+        "answer": "amber",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 8,
+        "inputTokens": 17556,
+        "cachedInputTokens": 17152,
+        "uncachedInputTokens": 404,
+        "outputTokens": 5,
+        "elapsedMs": 1888,
+        "answer": "17",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      },
+      {
+        "turn": 9,
+        "inputTokens": 17697,
+        "cachedInputTokens": 17152,
+        "uncachedInputTokens": 545,
+        "outputTokens": 17,
+        "elapsedMs": 2812,
+        "answer": "Write down your three most important tasks and tackle them in order.",
+        "memoryCheck": "not-applicable",
+        "toolRequests": 0
+      },
+      {
+        "turn": 10,
+        "inputTokens": 17848,
+        "cachedInputTokens": 17152,
+        "uncachedInputTokens": 696,
+        "outputTokens": 15,
+        "elapsedMs": 1950,
+        "answer": "Code word: amber; lucky number: 17.",
+        "memoryCheck": "pass",
+        "toolRequests": 0
+      }
+    ]
+  }
+}

@@ -19,7 +19,7 @@ test("a task packet contains only its purpose and task-kind capability reference
   assert.equal(packet.purpose.objective, "Fix the focused failing test");
   assert.deepEqual(packet.relevantContext, []);
   assert.deepEqual(packet.capabilityReferences.map((item) => item.id), [
-    "codex.workspace",
+    "bmo.code_workspace",
   ]);
   assert.equal(packet.historyPolicy.rawHistoryIncluded, false);
   assert.equal(packet.manifest.length, 1);

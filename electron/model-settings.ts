@@ -32,7 +32,7 @@ export interface ModelCatalogEntry {
 export const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   conversation: { model: "gpt-5.6-terra", effort: "low" },
   general: { model: "gpt-5.6-terra", effort: "medium" },
-  coding: { model: "gpt-5.6-sol", effort: "high" },
+  coding: { model: "gpt-6-luna", effort: "low" },
   computer: { model: "gpt-5.6-sol", effort: "medium" },
   browser: { model: "gpt-5.6-sol", effort: "medium" },
   memory: { model: "gpt-5.6-terra", effort: "low" },
@@ -51,6 +51,12 @@ export class ModelSettingsStore {
       for (const role of ROLES) {
         const candidate = raw[role];
         if (candidate?.model && candidate.effort) {
+          // Migrate the former coding default so an existing install does not
+          // silently launch the new Pi provider with an unsupported selection.
+          if (role === "coding" && candidate.model === "gpt-5.6-sol" && candidate.effort === "high") {
+            this.settings.coding = { model: "gpt-6-luna", effort: "low" };
+            continue;
+          }
           this.settings[role] = {
             model: String(candidate.model),
             effort: String(candidate.effort),

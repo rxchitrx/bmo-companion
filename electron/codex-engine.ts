@@ -1,0 +1,28 @@
+import { CodexRecoveryObserver, CodexTaskExecutor } from "./codex-adapter.js";
+import { CodexConversationClient } from "./conversation-client.js";
+import { CodexRealtimeVoiceClient } from "./realtime-voice-client.js";
+import type { CompanionEngine } from "./companion-engine.js";
+import type { TaskSnapshot } from "./task-runtime.js";
+import type { ConnectorToolBridge } from "./connector-tools.js";
+import type { ComputerUseHealth } from "./computer-use-health.js";
+
+export function createCodexTaskEngine(computerUseHealth: ComputerUseHealth, codeWorkspacesDirectory: string): Pick<CompanionEngine, "taskExecutor" | "recoveryObserver"> {
+  return {
+    taskExecutor: new CodexTaskExecutor(computerUseHealth, codeWorkspacesDirectory),
+    recoveryObserver: new CodexRecoveryObserver(),
+  };
+}
+
+export function createCodexInteractionEngine(options: {
+  readTask: () => TaskSnapshot | null;
+  readConversationModel: () => { model: string; effort: string };
+  connectorTools: ConnectorToolBridge;
+  voiceConnectorTools?: ConnectorToolBridge;
+  startTask: (goal: string, kind: "general" | "coding" | "computer" | "browser", retryOf?: TaskSnapshot) => Promise<TaskSnapshot>;
+  stopTask: () => Promise<boolean>;
+}): Pick<CompanionEngine, "conversation" | "voice"> {
+  return {
+    conversation: new CodexConversationClient(options.readTask, options.readConversationModel, options.connectorTools),
+    voice: new CodexRealtimeVoiceClient(options.startTask, options.stopTask, options.readTask, options.voiceConnectorTools ?? options.connectorTools),
+  };
+}

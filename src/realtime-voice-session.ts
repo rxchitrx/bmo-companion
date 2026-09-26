@@ -127,6 +127,25 @@ export function normalizeRealtimeTokenUsage(value: unknown): TokenUsage | null {
     : null;
 }
 
+export function normalizeRealtimeAudioDurationMs(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const usage =
+    source.usage && typeof source.usage === "object"
+      ? (source.usage as Record<string, unknown>)
+      : source;
+  const durationMs = usage.audio_duration_ms;
+  return typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0
+    ? Math.round(durationMs)
+    : null;
+}
+
+/** A rough transcript-only estimate; it does not count audio or hidden context. */
+export function estimateTranscriptTokens(text: string): number {
+  const normalized = text.trim();
+  return normalized ? Math.ceil(normalized.length / 4) : 0;
+}
+
 export class CodexRealtimeVoiceSession {
   private peer: RTCPeerConnection | null = null;
   private stream: MediaStream | null = null;
@@ -149,6 +168,7 @@ export class CodexRealtimeVoiceSession {
       state: MicrophoneTrackState | null,
     ) => void = () => {},
     private readonly emitUsage: (usage: TokenUsage) => void = () => {},
+    private readonly emitAudioDuration: (durationMs: number) => void = () => {},
   ) {}
 
   get currentStatus() {
@@ -438,6 +458,8 @@ export class CodexRealtimeVoiceSession {
         type === "response.done" ||
         type === "turn.done"
       ) {
+        const audioDurationMs = normalizeRealtimeAudioDurationMs(event);
+        if (audioDurationMs != null) this.emitAudioDuration(audioDurationMs);
         const usage = normalizeRealtimeTokenUsage(event);
         if (usage) {
           clientDiagnostic("voice.webrtc", "usage.updated", { usage });

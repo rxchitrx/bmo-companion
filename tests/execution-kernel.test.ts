@@ -102,11 +102,11 @@ test("the production kernel runs one scoped worker through the complete typed fl
   assert.equal(result.verificationDecision?.status, "verified");
   assert.deepEqual(
     result.verificationEvidence?.map((evidence) => evidence.id),
-    ["codex-task.verification-contract"],
+    ["code-task.verification-contract"],
   );
   assert.equal(receivedExecution?.contextPacket?.purpose.taskKind, "coding");
   assert.deepEqual(receivedExecution?.capabilityManifest?.selectedCapabilityIds, [
-    "codex.workspace",
+    "bmo.code_workspace",
   ]);
   assert.equal(receivedExecution?.capabilityManifest?.worker.maxInstances, 1);
   assert.deepEqual(progress, ["private worker milestone"]);

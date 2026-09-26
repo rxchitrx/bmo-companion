@@ -1,0 +1,177 @@
+{
+  "schemaVersion": "bmo-codex-ablation-lab/1",
+  "createdAt": "2026-09-23T18:31:34.042Z",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "repetitionsPerArm": 3,
+  "runtimeSha256": "c67698d0990aae05211d9c43ab343ad9517e406824dea77eca103a2806232b3a",
+  "configurationSha256": "7b8d9a0c985b562f3e2b664325853a0fc13a7c56389255a63522031c17733ca0",
+  "measurement": "Codex app-server thread/tokenUsage/updated totals; repeated fresh process and ephemeral thread per sample.",
+  "toolProbe": true,
+  "limitations": [
+    "This measures the BMO typed-chat Codex app-server path; realtime voice uses a different protocol and is not token-compared here.",
+    "The Codex runtime's internal system instructions and token-by-token composition are not exposed by this protocol.",
+    "Difference between arms estimates BMO-added prompt/tool-schema cost. The minimum arm is a measured Codex runtime floor, not a pure separation of every Codex-internal source.",
+    "Conversation history is empty in all arms; later turns in a persistent conversation can cost more."
+  ],
+  "failures": [],
+  "arms": [
+    {
+      "id": "baseline",
+      "status": "complete",
+      "description": "BMO typed chat with current Codex startup settings.",
+      "codexFlags": [],
+      "promptCharacters": 682,
+      "promptSha256": "07623f0f9664f9beb4a0a7942d687e864270cc544288ee5637c75d65492349f9",
+      "inputTokens": {
+        "median": 46870,
+        "min": 46870,
+        "max": 46870,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 44544,
+        "min": 44544,
+        "max": 44544,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 2326,
+        "min": 2326,
+        "max": 2326,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 32,
+        "min": 32,
+        "max": 32,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 10050,
+        "min": 9269,
+        "max": 10883,
+        "samples": 3
+      },
+      "toolRequests": 3,
+      "acceptedTaskReads": 3,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 46870,
+          "cachedInputTokens": 44544,
+          "freshInputTokens": 2326,
+          "outputTokens": 32,
+          "elapsedMs": 10883
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 46870,
+          "cachedInputTokens": 44544,
+          "freshInputTokens": 2326,
+          "outputTokens": 32,
+          "elapsedMs": 9269
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 46870,
+          "cachedInputTokens": 44544,
+          "freshInputTokens": 2326,
+          "outputTokens": 32,
+          "elapsedMs": 10050
+        }
+      ]
+    },
+    {
+      "id": "lean-conversation",
+      "status": "complete",
+      "description": "Disable plugins and cap skill catalog metadata at 128 tokens for BMO typed conversation.",
+      "codexFlags": [
+        "--disable",
+        "plugins",
+        "--config",
+        "skills.max_context_tokens=128"
+      ],
+      "promptCharacters": 682,
+      "promptSha256": "07623f0f9664f9beb4a0a7942d687e864270cc544288ee5637c75d65492349f9",
+      "inputTokens": {
+        "median": 33052,
+        "min": 33052,
+        "max": 33052,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 17920,
+        "min": 16128,
+        "max": 27136,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 15132,
+        "min": 5916,
+        "max": 16924,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 37,
+        "min": 32,
+        "max": 38,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 9521,
+        "min": 8998,
+        "max": 11435,
+        "samples": 3
+      },
+      "toolRequests": 3,
+      "acceptedTaskReads": 3,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 33052,
+          "cachedInputTokens": 16128,
+          "freshInputTokens": 16924,
+          "outputTokens": 37,
+          "elapsedMs": 8998
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 33052,
+          "cachedInputTokens": 17920,
+          "freshInputTokens": 15132,
+          "outputTokens": 32,
+          "elapsedMs": 9521
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 33052,
+          "cachedInputTokens": 27136,
+          "freshInputTokens": 5916,
+          "outputTokens": 38,
+          "elapsedMs": 11435
+        }
+      ]
+    }
+  ],
+  "deltas": {
+    "lean-conversation": {
+      "median": -13818,
+      "min": -13818,
+      "max": -13818,
+      "samples": 3
+    }
+  }
+}

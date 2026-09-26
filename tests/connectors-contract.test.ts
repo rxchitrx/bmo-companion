@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ConnectorGateway } from "../electron/connector-gateway.ts";
 import { MODEL_VISIBLE_CAPABILITY_ALLOWLIST } from "../electron/capability-selection.ts";
+import { exactToolApproval } from "../electron/tool-policy.ts";
+import { ToolDispatcher, type ToolCallRecord, type ToolCallJournal } from "../electron/tool-dispatch.ts";
 import type {
   ConnectorCommandResult,
   ConnectorCommandRunner,
@@ -97,6 +99,20 @@ class FakeRunner implements ConnectorCommandRunner {
     }
     return { stdout, stderr: "", exitCode: 0 };
   }
+}
+
+class MemoryToolJournal implements ToolCallJournal {
+  private records = new Map<string, ToolCallRecord>();
+  async get(key: string) { return this.records.get(key); }
+  async put(record: ToolCallRecord) { this.records.set(record.key, record); }
+}
+
+function testGateway(connectors: ReturnType<typeof createConnectors>) {
+  return new ConnectorGateway(
+    connectors,
+    undefined,
+    new ToolDispatcher(new MemoryToolJournal()),
+  );
 }
 
 const samples: Record<string, Record<string, string | number | boolean>> = {
@@ -221,6 +237,19 @@ const expectedModes: Record<string, "read" | "write"> = {
   "obsidian.append_note": "write",
 };
 
+function approvalFor(call: ReturnType<ConnectorGateway["prepare"]>) {
+  const taskId = `connector-contract:${call.service}.${call.action}`;
+  return {
+    taskId,
+    approvalScope: exactToolApproval(
+      taskId,
+      `${call.service}.${call.action}`,
+      call.arguments,
+      new Date(Date.now() + 60_000).toISOString(),
+    ),
+  };
+}
+
 test("every approved connector action has an explicit tested contract and safe mode", async () => {
   const runner = new FakeRunner();
   const apple = new FakeAppleBridge();
@@ -241,7 +270,7 @@ test("every approved connector action has an explicit tested contract and safe m
   };
   try {
     const connectors = createConnectors(runner, apple as never);
-    const gateway = new ConnectorGateway(connectors);
+    const gateway = testGateway(connectors);
     const actual = Object.fromEntries(connectors.flatMap((connector) =>
       connector.actions.map((connectorAction) => [
         `${connector.id}.${connectorAction.name}`,
@@ -263,7 +292,12 @@ test("every approved connector action has an explicit tested contract and safe m
     for (const [key, args] of Object.entries(samples)) {
       const [service, action] = key.split(".");
       const call = gateway.prepare(service, action, args);
-      const result = await gateway.execute(call, new AbortController().signal);
+      const result = await gateway.execute(
+        call,
+        new AbortController().signal,
+        undefined,
+        call.mode === "write" ? approvalFor(call) : undefined,
+      );
       assert.ok(result.summary.trim(), `${key} must return a voice-ready summary`);
       assert.doesNotMatch(result.summary, /test-token|vault-secret/);
     }
@@ -280,6 +314,37 @@ test("actual connector surface exposes no permanent deletion action", () => {
     connector.actions.map((connectorAction) => `${connector.id}.${connectorAction.name}`));
   assert.equal(actionNames.length, Object.keys(expectedModes).length);
   assert.equal(actionNames.some((name) => /delete|erase|purge|destroy|wipe|trash|permanent/i.test(name)), false);
+});
+
+test("connector argument validation rejects unknown fields instead of silently dropping them", () => {
+  const gateway = testGateway(createConnectors(new FakeRunner(), new FakeAppleBridge() as never));
+
+  assert.throws(
+    () => gateway.prepare("github", "comment_issue", {
+      repo: "example/repo",
+      number: 7,
+      body: "Looks good",
+      forceDelete: true,
+    }),
+    /unknown|unsupported|not allowed|forceDelete/i,
+  );
+});
+
+test("connector argument validation rejects malformed shapes and invalid scalar types", () => {
+  const gateway = testGateway(createConnectors(new FakeRunner(), new FakeAppleBridge() as never));
+
+  assert.throws(
+    () => gateway.prepare("github", "comment_issue", ["example/repo", 7, "body"]),
+    /object|argument/i,
+  );
+  assert.throws(
+    () => gateway.prepare("github", "comment_issue", {
+      repo: "example/repo",
+      number: "7",
+      body: "Looks good",
+    }),
+    /number/i,
+  );
 });
 
 test("ordinary service words discover every user-facing connector", async () => {
@@ -308,18 +373,18 @@ test("ordinary service words discover every user-facing connector", async () => 
   }
 });
 
-test("connector validation rejects ambiguous or oversized consequential input", () => {
-  const gateway = new ConnectorGateway(
-    createConnectors(new FakeRunner(), new FakeAppleBridge() as never),
-  );
+test("connector validation rejects ambiguous or oversized consequential input", async () => {
+  const gateway = testGateway(createConnectors(new FakeRunner(), new FakeAppleBridge() as never));
   assert.throws(
     () => gateway.prepare("github", "view_issue", { repo: "example/repo" }),
     /number is required/,
   );
-  assert.rejects(
+  await assert.rejects(
     () => gateway.execute(
       gateway.prepare("google", "upload_drive_file", { localPath: "relative.txt" }),
       new AbortController().signal,
+      undefined,
+      approvalFor(gateway.prepare("google", "upload_drive_file", { localPath: "relative.txt" })),
     ),
     /localPath must be an absolute path/,
   );
@@ -328,11 +393,11 @@ test("connector validation rejects ambiguous or oversized consequential input", 
     range: "Sheet1!A:A",
     valuesJson: JSON.stringify({ not: "rows" }),
   });
-  assert.rejects(
-    () => gateway.execute(sheet, new AbortController().signal),
+  await assert.rejects(
+    () => gateway.execute(sheet, new AbortController().signal, undefined, approvalFor(sheet)),
     /two-dimensional JSON array/,
   );
-  assert.rejects(
+  await assert.rejects(
     () => gateway.execute(
       gateway.prepare("obsidian", "read_note", { path: "../Secrets.md" }),
       new AbortController().signal,
@@ -354,9 +419,7 @@ test("1Password resolves only an explicit Todoist reference and never returns th
     return new Response(JSON.stringify({ results: [] }), { status: 200 });
   };
   try {
-    const gateway = new ConnectorGateway(
-      createConnectors(runner, new FakeAppleBridge() as never),
-    );
+    const gateway = testGateway(createConnectors(runner, new FakeAppleBridge() as never));
     const result = await gateway.execute(
       gateway.prepare("todoist", "list_tasks", {}),
       new AbortController().signal,

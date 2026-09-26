@@ -2,6 +2,8 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { diagnosticLog, textMeta } from "./diagnostics.js";
+import { CodeWorkspaceDecision } from "./code-workspace.js";
+import { ReconciliationRequiredError } from "./tool-dispatch.js";
 import type { ConnectorCall } from "./connector-types.js";
 import type { TaskContextPacket } from "./context-packet.js";
 import type { ExecutionCapabilityManifest } from "./execution-kernel.js";
@@ -374,6 +376,11 @@ export class TaskRuntime {
     const previous = this.requireTask(previousId);
     if (["running", "waiting_approval", "suspended"].includes(previous.task.status)) {
       throw new Error("The current Task must settle before it can be retried.");
+    }
+    if (previous.task.connectorCall?.mode === "write") {
+      throw new ReconciliationRequiredError(
+        "A connected-service write may already exist. Inspect the external result before requesting any new write; BMO will not replay it as a retry.",
+      );
     }
     const priorOutcome =
       previous.task.summary ??
@@ -763,7 +770,7 @@ export class TaskRuntime {
       } else {
         await this.fail(
           stored,
-          result.summary || "Codex finished without sufficient verification.",
+          result.summary || "The worker finished without sufficient verification.",
           {
             verified: false,
             usage: stored.task.usage,
@@ -780,6 +787,14 @@ export class TaskRuntime {
         error: error instanceof Error ? error.message : String(error),
       });
       if (this.current !== stored || this.abortController?.signal.aborted) return;
+      if (error instanceof CodeWorkspaceDecision) {
+        await this.needsDecision(stored.task.id, error.message);
+        return;
+      }
+      if (error instanceof ReconciliationRequiredError) {
+        await this.needsDecision(stored.task.id, error.message);
+        return;
+      }
       await this.fail(stored, error instanceof Error ? error.message : "Task execution failed.");
     } finally {
       diagnosticLog("task.runtime", "execution.finally", {
@@ -923,7 +938,7 @@ export class TaskRuntime {
     stored.task.progress.push(
       stored.task.kind === "connector"
         ? "Approved for this Task. Preparing the connected-service action."
-        : "Approved for this Task. Preparing Codex.",
+        : "Approved for this Task. Preparing the worker.",
     );
     diagnosticLog("task.runtime", "approval.granted", {
       taskId: stored.task.id,

@@ -17,6 +17,10 @@ const resultFields = [
 ] as const;
 
 function validateMeasurement(name: string, measurement: Measurement, errors: string[]): void {
+  if (!measurement || typeof measurement !== "object") {
+    errors.push(`${name} is missing or invalid.`);
+    return;
+  }
   if (!measurementStatuses.includes(measurement.status)) {
     errors.push(`${name}.status is invalid.`);
   }
@@ -25,6 +29,10 @@ function validateMeasurement(name: string, measurement: Measurement, errors: str
   }
   if (measurement.status !== "measured" && measurement.value !== undefined) {
     errors.push(`${name}.value must be omitted when status is ${measurement.status}.`);
+  }
+  if (measurement.status === "measured" && measurement.value !== undefined &&
+      (!Number.isFinite(measurement.value) || (measurement.value ?? -1) < 0)) {
+    errors.push(`${name}.value must be a finite non-negative number.`);
   }
 }
 
@@ -47,6 +55,10 @@ export function validateEvaluationResult(result: EvaluationResult): string[] {
     validateMeasurement(field, result[field], errors);
   }
 
+  if (!result.outcome || !Array.isArray(result.verificationEvidence)) {
+    errors.push("outcome or verificationEvidence is missing or invalid.");
+    return errors;
+  }
   if (result.outcome.status === "measured" && result.outcome.verdict === "not-run") {
     errors.push("A measured outcome cannot have a not-run verdict.");
   }

@@ -17,6 +17,7 @@ import {
   ConnectorToolBridge,
 } from "./connector-tools.js";
 import type { ConnectorSignal } from "./connector-events.js";
+import { evaluateToolAction } from "./tool-policy.js";
 
 export {
   taskSnapshotToRealtimeContext,
@@ -172,6 +173,7 @@ export class CodexRealtimeVoiceClient {
     emit: (update: RealtimeVoiceUpdate) => void,
   ): Promise<RealtimeVoiceStartResult> {
     await this.stop("starting a new voice session");
+    this.connectorTools?.resetDiscovery();
     const sessionId = randomUUID();
     this.sessionId = sessionId;
     this.emit = emit;
@@ -519,10 +521,14 @@ export class CodexRealtimeVoiceClient {
       });
       if (role === "user" && isOwnerStopTranscript(transcript)) {
         this.lastUserTranscriptWasStop = true;
+        this.connectorTools?.resetDiscovery();
         this.enforceOwnerStop(sessionId);
         return;
       }
-      if (role === "user") this.lastUserTranscriptWasStop = false;
+      if (role === "user") {
+        this.lastUserTranscriptWasStop = false;
+        this.connectorTools?.beginOwnerTurn(transcript);
+      }
       if (role === "assistant") this.transcripts.assistant = "";
       if (role === "user") this.transcripts.user = "";
     } else if (message.method === "thread/realtime/outputAudio/delta") {
@@ -620,11 +626,21 @@ export class CodexRealtimeVoiceClient {
         },
       };
     }
-    const rawArguments = message.params.arguments;
-    const args =
-      typeof rawArguments === "string"
-        ? JSON.parse(rawArguments) as { goal?: unknown; kind?: unknown; retry?: unknown }
-        : rawArguments as { goal?: unknown; kind?: unknown; retry?: unknown };
+    let args: { goal?: unknown; kind?: unknown; retry?: unknown };
+    try {
+      const rawArguments = message.params.arguments;
+      args = typeof rawArguments === "string"
+        ? JSON.parse(rawArguments) as typeof args
+        : rawArguments as typeof args;
+      if (!args || typeof args !== "object" || Array.isArray(args) ||
+        Object.keys(args).some((key) => !["goal", "kind", "retry"].includes(key)) ||
+        typeof args.kind !== "string" || !["general", "coding", "computer", "browser"].includes(args.kind) ||
+        typeof args.retry !== "boolean") throw new Error("Malformed control_computer arguments.");
+    } catch {
+      return {
+        result: { success: false, contentItems: [{ type: "inputText", text: "control_computer needs a valid goal, kind, and retry flag." }] },
+      };
+    }
     const goal = typeof args?.goal === "string" ? args.goal.trim() : "";
     const rawKind = typeof args?.kind === "string" ? args.kind : "general";
     const kind = (["general", "coding", "computer", "browser"].includes(rawKind)
@@ -641,6 +657,10 @@ export class CodexRealtimeVoiceClient {
           }],
         },
       };
+    }
+    const policy = evaluateToolAction({ actionId: "control_computer", args: { goal, kind, retry: explicitRetry } });
+    if (policy.decision !== "ask") {
+      return { result: { success: false, contentItems: [{ type: "inputText", text: "Task control was denied by BMO policy." }] } };
     }
     const latest = this.readCurrentTask() ?? this.latestTask;
     const latestAt = latest?.finishedAt ?? latest?.createdAt;

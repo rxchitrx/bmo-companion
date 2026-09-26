@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   classifyRealtimeDataEvent,
   createMicrophoneConstraints,
+  estimateTranscriptTokens,
+  normalizeRealtimeAudioDurationMs,
   normalizeRealtimeTokenUsage,
 } from "../src/realtime-voice-session.ts";
 
@@ -78,4 +80,35 @@ test("turn completion usage normalizes from the realtime turn envelope", () => {
       totalTokens: 1000,
     },
   );
+});
+
+test("realtime audio duration without model tokens remains unmeasured", () => {
+  assert.equal(
+    normalizeRealtimeTokenUsage({
+      type: "session.usage.updated",
+      usage: {
+        audio_duration_ms: 6400,
+        backend_model_usage: [],
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    normalizeRealtimeAudioDurationMs({
+      type: "session.usage.updated",
+      usage: { audio_duration_ms: 6400, backend_model_usage: [] },
+    }),
+    6400,
+  );
+});
+
+test("audio duration accepts only a valid reported millisecond value", () => {
+  assert.equal(normalizeRealtimeAudioDurationMs({ usage: { audio_duration_ms: 0 } }), null);
+  assert.equal(normalizeRealtimeAudioDurationMs({ usage: { audio_duration_ms: "6400" } }), null);
+});
+
+test("transcript token estimate stays a rough text-only estimate", () => {
+  assert.equal(estimateTranscriptTokens(""), 0);
+  assert.equal(estimateTranscriptTokens("Hello there"), 3);
+  assert.equal(estimateTranscriptTokens("  Hello there  "), 3);
 });

@@ -1,0 +1,42 @@
+{
+  "task": "BMO diagnostics access_token redaction",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "provider": "openai-codex subscription through Pi",
+  "route": "BMO TaskRuntime > execution kernel > task engine > Pi",
+  "taskStatus": "completed",
+  "pendingBeforeApproval": true,
+  "ledgerEvents": [
+    "task.created",
+    "task.approved",
+    "task.running",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.completed"
+  ],
+  "adapterVerified": true,
+  "hiddenPass": true,
+  "hiddenDetail": "Hidden access_token contract passed.",
+  "pass": true,
+  "summary": "VERIFIED OUTCOME: Updated `electron/diagnostics.ts` so URL query parameters named `access_token` are redacted alongside the existing sensitive parameters.",
+  "usage": {
+    "inputTokens": 3772,
+    "cachedInputTokens": 0,
+    "outputTokens": 110,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 3882
+  },
+  "timing": {
+    "startupMs": 0,
+    "executionMs": 11695,
+    "settlingMs": 634,
+    "shutdownMs": 0,
+    "totalMs": 12329
+  },
+  "workspace": "/private/var/folders/m1/qcwj2y5x1mn0ksy8wxfc7d040000gn/T/bmo-pi-live-lmassz/workspaces/9be65498-a6c5-4ac2-899d-2e939630ef9e",
+  "durationMs": 12402,
+  "sourceCheckoutUnchanged": true
+}

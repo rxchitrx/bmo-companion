@@ -99,8 +99,12 @@ function measured(value: number, unit: Measurement["unit"]): Measurement {
 
 function tokenTelemetry(usage: TokenUsage | undefined) {
   if (!usage) return undefined;
-  const input = Math.max(0, Math.round(usage.inputTokens));
-  const cachedInput = Math.min(input, Math.max(0, Math.round(usage.cachedInputTokens)));
+  const values = [usage.inputTokens, usage.cachedInputTokens, usage.outputTokens,
+    usage.reasoningOutputTokens, usage.totalTokens];
+  if (!values.every((value) => Number.isSafeInteger(value) && value >= 0) ||
+      usage.cachedInputTokens > usage.inputTokens) return undefined;
+  const input = usage.inputTokens;
+  const cachedInput = usage.cachedInputTokens;
   return {
     input: measured(input, "tokens"),
     cachedInput: measured(cachedInput, "tokens"),

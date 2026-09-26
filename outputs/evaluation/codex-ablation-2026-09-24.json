@@ -1,0 +1,701 @@
+{
+  "schemaVersion": "bmo-codex-ablation-lab/1",
+  "createdAt": "2026-09-23T18:25:39.263Z",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "repetitionsPerArm": 3,
+  "runtimeSha256": "c67698d0990aae05211d9c43ab343ad9517e406824dea77eca103a2806232b3a",
+  "configurationSha256": "7b8d9a0c985b562f3e2b664325853a0fc13a7c56389255a63522031c17733ca0",
+  "measurement": "Codex app-server thread/tokenUsage/updated totals; repeated fresh process and ephemeral thread per sample.",
+  "limitations": [
+    "This measures the BMO typed-chat Codex app-server path; realtime voice uses a different protocol and is not token-compared here.",
+    "The Codex runtime's internal system instructions and token-by-token composition are not exposed by this protocol.",
+    "Difference between arms estimates BMO-added prompt/tool-schema cost. The minimum arm is a measured Codex runtime floor, not a pure separation of every Codex-internal source.",
+    "Conversation history is empty in all arms; later turns in a persistent conversation can cost more."
+  ],
+  "failures": [
+    {
+      "arm": "apps-off",
+      "repetition": 2,
+      "reason": "Canary turn timed out after 90 seconds."
+    },
+    {
+      "arm": "memories-off",
+      "repetition": 2,
+      "reason": "Canary turn timed out after 90 seconds."
+    }
+  ],
+  "arms": [
+    {
+      "id": "baseline",
+      "status": "complete",
+      "description": "BMO typed chat with current Codex startup settings.",
+      "codexFlags": [],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 24131,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 22272,
+        "min": 0,
+        "max": 22272,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 1128,
+        "min": 1128,
+        "max": 24131,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 15,
+        "min": 14,
+        "max": 16,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 11152,
+        "min": 7106,
+        "max": 15112,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 24131,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 24131,
+          "outputTokens": 14,
+          "elapsedMs": 15112
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 15,
+          "elapsedMs": 11152
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 16,
+          "elapsedMs": 7106
+        }
+      ]
+    },
+    {
+      "id": "plugins-off",
+      "status": "complete",
+      "description": "Disable Codex plugins for this app-server process.",
+      "codexFlags": [
+        "--disable",
+        "plugins"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 22057,
+        "min": 22057,
+        "max": 22057,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 21248,
+        "min": 0,
+        "max": 21248,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 809,
+        "min": 809,
+        "max": 22057,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 12,
+        "max": 14,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 6371,
+        "min": 6208,
+        "max": 7798,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 22057,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 22057,
+          "outputTokens": 12,
+          "elapsedMs": 6371
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 22057,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 809,
+          "outputTokens": 14,
+          "elapsedMs": 6208
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 22057,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 809,
+          "outputTokens": 14,
+          "elapsedMs": 7798
+        }
+      ]
+    },
+    {
+      "id": "skill-catalog-128",
+      "status": "complete",
+      "description": "Cap available skill metadata at 128 tokens.",
+      "codexFlags": [
+        "--config",
+        "skills.max_context_tokens=128"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 17708,
+        "min": 17708,
+        "max": 17708,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 17152,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 17708,
+        "min": 556,
+        "max": 17708,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 15,
+        "min": 14,
+        "max": 15,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 8449,
+        "min": 6987,
+        "max": 10630,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 17708,
+          "cachedInputTokens": 17152,
+          "freshInputTokens": 556,
+          "outputTokens": 14,
+          "elapsedMs": 10630
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 17708,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 17708,
+          "outputTokens": 15,
+          "elapsedMs": 8449
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 17708,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 17708,
+          "outputTokens": 15,
+          "elapsedMs": 6987
+        }
+      ]
+    },
+    {
+      "id": "skill-search-off",
+      "status": "complete",
+      "description": "Disable Codex skill search.",
+      "codexFlags": [
+        "--disable",
+        "skill_search"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 23400,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 12032,
+        "min": 1792,
+        "max": 22272,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 11368,
+        "min": 1128,
+        "max": 21608,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 14,
+        "max": 15,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 8689,
+        "min": 7574,
+        "max": 10865,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 23400,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 11368,
+          "outputTokens": 14,
+          "elapsedMs": 8689
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 1792,
+          "freshInputTokens": 21608,
+          "outputTokens": 15,
+          "elapsedMs": 10865
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 7574
+        }
+      ]
+    },
+    {
+      "id": "host-skills-off",
+      "status": "complete",
+      "description": "Skip host skill discovery.",
+      "codexFlags": [
+        "--enable",
+        "skip_host_skill_discovery"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 23400,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 12032,
+        "min": 0,
+        "max": 22272,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 11368,
+        "min": 1128,
+        "max": 23400,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 15,
+        "min": 14,
+        "max": 16,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 7363,
+        "min": 7035,
+        "max": 8754,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 23400,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 23400,
+          "outputTokens": 14,
+          "elapsedMs": 7363
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 16,
+          "elapsedMs": 8754
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 11368,
+          "outputTokens": 15,
+          "elapsedMs": 7035
+        }
+      ]
+    },
+    {
+      "id": "mcp-servers-off",
+      "status": "complete",
+      "description": "Disable the two configured MCP servers for this process.",
+      "codexFlags": [
+        "--config",
+        "mcp_servers.node_repl.enabled=false",
+        "--config",
+        "mcp_servers.computer-use.enabled=false"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 23400,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 22272,
+        "min": 0,
+        "max": 22272,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 1128,
+        "min": 1128,
+        "max": 23400,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 15,
+        "min": 14,
+        "max": 15,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 10301,
+        "min": 6995,
+        "max": 11458,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 23400,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 23400,
+          "outputTokens": 15,
+          "elapsedMs": 10301
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 11458
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 15,
+          "elapsedMs": 6995
+        }
+      ]
+    },
+    {
+      "id": "apps-off",
+      "status": "incomplete",
+      "description": "Disable the Codex apps feature for this process.",
+      "codexFlags": [
+        "--disable",
+        "apps"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 22326,
+        "min": 22326,
+        "max": 22326,
+        "samples": 1
+      },
+      "cachedInputTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 1
+      },
+      "freshInputTokens": {
+        "median": 22326,
+        "min": 22326,
+        "max": 22326,
+        "samples": 1
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 14,
+        "max": 14,
+        "samples": 1
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 1
+      },
+      "elapsedMs": {
+        "median": 5124,
+        "min": 5124,
+        "max": 5124,
+        "samples": 1
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 22326,
+          "cachedInputTokens": 0,
+          "freshInputTokens": 22326,
+          "outputTokens": 14,
+          "elapsedMs": 5124
+        }
+      ]
+    },
+    {
+      "id": "memories-off",
+      "status": "incomplete",
+      "description": "Disable Codex memories for this process.",
+      "codexFlags": [
+        "--disable",
+        "memories"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 19694,
+        "min": 19694,
+        "max": 19694,
+        "samples": 1
+      },
+      "cachedInputTokens": {
+        "median": 12032,
+        "min": 12032,
+        "max": 12032,
+        "samples": 1
+      },
+      "freshInputTokens": {
+        "median": 7662,
+        "min": 7662,
+        "max": 7662,
+        "samples": 1
+      },
+      "outputTokens": {
+        "median": 14,
+        "min": 14,
+        "max": 14,
+        "samples": 1
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 1
+      },
+      "elapsedMs": {
+        "median": 7094,
+        "min": 7094,
+        "max": 7094,
+        "samples": 1
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 19694,
+          "cachedInputTokens": 12032,
+          "freshInputTokens": 7662,
+          "outputTokens": 14,
+          "elapsedMs": 7094
+        }
+      ]
+    },
+    {
+      "id": "browser-use-off",
+      "status": "complete",
+      "description": "Disable Codex browser use for this process.",
+      "codexFlags": [
+        "--disable",
+        "browser_use"
+      ],
+      "promptCharacters": 647,
+      "promptSha256": "843b3db26b67cc3b651d7ff2be6634784902929b2a525f4330143af0b351799c",
+      "inputTokens": {
+        "median": 23400,
+        "min": 23400,
+        "max": 23400,
+        "samples": 3
+      },
+      "cachedInputTokens": {
+        "median": 22272,
+        "min": 21248,
+        "max": 22272,
+        "samples": 3
+      },
+      "freshInputTokens": {
+        "median": 1128,
+        "min": 1128,
+        "max": 2152,
+        "samples": 3
+      },
+      "outputTokens": {
+        "median": 15,
+        "min": 14,
+        "max": 18,
+        "samples": 3
+      },
+      "reasoningTokens": {
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "samples": 3
+      },
+      "elapsedMs": {
+        "median": 8891,
+        "min": 6771,
+        "max": 21309,
+        "samples": 3
+      },
+      "toolRequests": 0,
+      "samples": [
+        {
+          "repetition": 1,
+          "inputTokens": 23400,
+          "cachedInputTokens": 21248,
+          "freshInputTokens": 2152,
+          "outputTokens": 18,
+          "elapsedMs": 21309
+        },
+        {
+          "repetition": 2,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 14,
+          "elapsedMs": 6771
+        },
+        {
+          "repetition": 3,
+          "inputTokens": 23400,
+          "cachedInputTokens": 22272,
+          "freshInputTokens": 1128,
+          "outputTokens": 15,
+          "elapsedMs": 8891
+        }
+      ]
+    }
+  ],
+  "deltas": {
+    "plugins-off": {
+      "median": -1343,
+      "min": -2074,
+      "max": -1343,
+      "samples": 3
+    },
+    "skill-catalog-128": {
+      "median": -5692,
+      "min": -6423,
+      "max": -5692,
+      "samples": 3
+    },
+    "skill-search-off": {
+      "median": 0,
+      "min": -731,
+      "max": 0,
+      "samples": 3
+    },
+    "host-skills-off": {
+      "median": 0,
+      "min": -731,
+      "max": 0,
+      "samples": 3
+    },
+    "mcp-servers-off": {
+      "median": 0,
+      "min": -731,
+      "max": 0,
+      "samples": 3
+    },
+    "browser-use-off": {
+      "median": 0,
+      "min": -731,
+      "max": 0,
+      "samples": 3
+    }
+  }
+}

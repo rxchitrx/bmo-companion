@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  budgetItemFingerprint,
   createTaskThreadParams,
   normalizeAccountUsage,
   normalizeTaskTokenUsage,
   taskServerRequestReply,
 } from "../electron/codex-adapter.ts";
+
+test("tool loop fingerprints distinguish arguments but ignore object key order", () => {
+  const base = { type: "mcpToolCall", server: "node_repl", tool: "js" };
+  const first = budgetItemFingerprint({ ...base, arguments: { code: "write one", path: "a" } });
+  const same = budgetItemFingerprint({ ...base, arguments: { path: "a", code: "write one" } });
+  const different = budgetItemFingerprint({ ...base, arguments: { code: "write two", path: "a" } });
+  assert.notEqual(first, different);
+  assert.equal(first, same);
+});
 import { createConversationOnlyThreadParams } from "../electron/conversation-client.ts";
 import { createCompanionConversationThreadParams } from "../electron/conversation-client.ts";
 import {
@@ -16,7 +26,9 @@ import {
   taskStatusSpeech,
 } from "../electron/realtime-voice-client.ts";
 import type { TaskSnapshot } from "../electron/task-runtime.ts";
+import { codeWorkerEnvironment } from "../electron/code-workspace.ts";
 import { ConnectorGateway } from "../electron/connector-gateway.ts";
+import { MODEL_VISIBLE_CAPABILITY_ALLOWLIST } from "../electron/capability-selection.ts";
 import { ConnectorToolBridge } from "../electron/connector-tools.ts";
 import type { Connector } from "../electron/connector-types.ts";
 
@@ -44,6 +56,26 @@ test("revoked Task authority cancels every consequential server request", () => 
       false,
     ),
     { result: { action: "decline", content: null } },
+  );
+});
+
+test("active Task authority still cannot grant Codex sandbox or permission escalation", () => {
+  const methods = [
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+    "mcpServer/elicitation/request",
+  ];
+  for (const method of methods) {
+    assert.deepEqual(
+      taskServerRequestReply(method, { permissions: { network: true, fullDiskAccess: true } }, true),
+      taskServerRequestReply(method, { permissions: { network: true, fullDiskAccess: true } }, false),
+      `${method} must not change when Task authority is active`,
+    );
+  }
+  assert.deepEqual(
+    taskServerRequestReply("item/permissions/requestApproval", { permissions: { network: true } }, true),
+    { result: { scope: "turn", permissions: {} } },
   );
 });
 
@@ -130,6 +162,37 @@ test("typed companion conversation exposes only task state and validated connect
     policy.dynamicTools.map((tool) => tool.name),
     ["get_task_state", "discover_services", "use_service"],
   );
+});
+
+test("coding workers get workspace-write only, while ordinary tasks stay read-only", () => {
+  const coding = createTaskThreadParams("/tmp/bmo-coding", "coding");
+  const general = createTaskThreadParams("/tmp/bmo-general", "general");
+  assert.equal(coding.sandbox, "workspace-write");
+  assert.equal(general.sandbox, "read-only");
+  assert.equal(coding.approvalPolicy, "never");
+  assert.deepEqual(coding.environments, []);
+  assert.deepEqual(coding.selectedCapabilityRoots, []);
+  assert.equal(coding.config.apps._default.enabled, false);
+});
+
+test("code worker environment excludes inherited application and provider secrets", () => {
+  const filtered = codeWorkerEnvironment({
+    HOME: "/Users/example",
+    PATH: "/usr/bin",
+    CODEX_HOME: "/Users/example/.codex",
+    CODEX_CLI_PATH: "/Applications/ChatGPT.app/Contents/Resources/codex",
+    OPENAI_API_KEY: "do-not-forward",
+    BMO_TODOIST_TOKEN: "do-not-forward",
+    GH_TOKEN: "do-not-forward",
+    AWS_SECRET_ACCESS_KEY: "do-not-forward",
+  });
+  assert.deepEqual(filtered, {
+    HOME: "/Users/example",
+    PATH: "/usr/bin",
+    CODEX_HOME: "/Users/example/.codex",
+    CODEX_CLI_PATH: "/Applications/ChatGPT.app/Contents/Resources/codex",
+  });
+  assert.equal(Object.keys(filtered).some((key) => /API_KEY|TOKEN|SECRET/.test(key)), false);
 });
 
 test("owner Stop phrases are recognized as a Task boundary", () => {
@@ -386,6 +449,7 @@ test("realtime voice can discover, read, and request approval for connected serv
       params: { tool, arguments: args },
     });
 
+  tools.beginOwnerTurn("Read and write fixture");
   const discovered = await request("discover_services", { query: "fixture read" });
   assert.match(discovered.result?.contentItems?.[0]?.text ?? "", /fixture/);
   const read = await request("use_service", {
@@ -462,7 +526,10 @@ test("spoken Stop aborts an in-flight realtime connector read and keeps voice al
     }],
   };
   const tools = new ConnectorToolBridge({
-    gateway: new ConnectorGateway([connector]),
+    gateway: new ConnectorGateway(
+      [connector],
+      new Set([...MODEL_VISIBLE_CAPABILITY_ALLOWLIST, "fixture.read"]),
+    ),
     async startTask() { throw new Error("not used"); },
     readCurrentTask: () => null,
   });
@@ -486,6 +553,9 @@ test("spoken Stop aborts an in-flight realtime connector read and keeps voice al
     sessionId: "session-1",
     emit: (update: { status: string }) => updates.push(update),
   });
+  tools.beginOwnerTurn("Read fixture");
+  await (tools as unknown as { handle(message: Record<string, unknown>): Promise<unknown> })
+    .handle({ method: "item/tool/call", params: { tool: "discover_services", arguments: { query: "read" } } });
   const pending = (client as unknown as {
     handleServerRequest(message: Record<string, unknown>): Promise<{
       result?: { contentItems?: Array<{ text?: string }> };

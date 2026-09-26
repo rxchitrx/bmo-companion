@@ -5,6 +5,9 @@ import type { TaskSnapshot } from "./task-runtime.js";
 import { taskSnapshotToRealtimeContext } from "./task-context.js";
 import { diagnosticLog } from "./diagnostics.js";
 import { recordContextSnapshot } from "./context-telemetry.js";
+import { evaluateToolAction } from "./tool-policy.js";
+import { ToolDispatcher } from "./tool-dispatch.js";
+import { randomUUID } from "node:crypto";
 
 export const CONNECTOR_DYNAMIC_TOOLS = [
   {
@@ -82,14 +85,30 @@ function toolResult(
 
 function parseArguments(message: JsonRpcMessage) {
   const raw = message.params?.arguments;
-  if (typeof raw === "string") return JSON.parse(raw) as Record<string, unknown>;
-  return (raw ?? {}) as Record<string, unknown>;
+  if (typeof raw === "string" && raw.length > 100_000) throw new Error("Tool arguments are too large.");
+  const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw ?? {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Tool arguments must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 export class ConnectorToolBridge {
   private readonly activeReads = new Set<AbortController>();
+  private readonly readDispatcher = new ToolDispatcher();
+  private selectedCapabilityIds = new Set<string>();
+  private ownerIntent = "";
+  private turnEpoch = 0;
 
   constructor(private readonly options: ConnectorToolBridgeOptions) {}
+
+  beginOwnerTurn(text: string) {
+    this.turnEpoch += 1;
+    this.ownerIntent = text.slice(0, 500);
+    this.selectedCapabilityIds.clear();
+  }
+
+  resetDiscovery() { this.beginOwnerTurn(""); }
 
   cancelActiveReads() {
     const count = this.activeReads.size;
@@ -108,9 +127,36 @@ export class ConnectorToolBridge {
         : "[AUTHORITATIVE TASK STATE]\nNo Task exists.", true, "get_task_state");
     }
     if (tool === "discover_services") {
-      const args = parseArguments(message);
-      const query = typeof args.query === "string" ? args.query : "";
-      const services = await this.options.gateway.discover(query);
+      let args: Record<string, unknown>;
+      try { args = parseArguments(message); }
+      catch { return toolResult("Invalid discover_services arguments.", false, "discover_services.validation"); }
+      if (Object.keys(args).some((key) => key !== "query") || typeof args.query !== "string" || args.query.length > 500) {
+        return toolResult("discover_services needs exactly one query string.", false, "discover_services.validation");
+      }
+      if (!this.ownerIntent.trim()) {
+        return toolResult("No current owner request authorizes service discovery.", false, "discover_services.scope");
+      }
+      // The model's query can contain instructions copied from untrusted data.
+      // Capability selection is anchored to the latest direct owner request.
+      const controller = new AbortController();
+      const ownerIntent = this.ownerIntent;
+      const turnEpoch = this.turnEpoch;
+      this.activeReads.add(controller);
+      let services: Awaited<ReturnType<ConnectorGateway["discover"]>>;
+      try {
+        services = await this.readDispatcher.execute({
+          key: randomUUID(), actionId: "discover_services", argsHash: "owner-intent",
+          sideEffect: false, timeoutMs: 15_000, signal: controller.signal,
+          run: () => this.options.gateway.discover(ownerIntent),
+        });
+      } catch (error) {
+        return toolResult(error instanceof Error ? error.message : "Service discovery failed.", false, "discover_services.error");
+      } finally {
+        this.activeReads.delete(controller);
+      }
+      if (turnEpoch !== this.turnEpoch) return toolResult("Owner request changed during discovery.", false, "discover_services.stale");
+      this.selectedCapabilityIds = new Set(services.flatMap((service) =>
+        service.actions.map((action) => `${service.id}.${action.name}`)));
       diagnosticLog("connectors.tools", "discovered", {
         serviceCount: services.length,
         actionCount: services.reduce((sum, service) => sum + service.actions.length, 0),
@@ -123,9 +169,19 @@ export class ConnectorToolBridge {
     }
     if (tool !== "use_service") return null;
 
-    const args = parseArguments(message);
+    let args: Record<string, unknown>;
+    try { args = parseArguments(message); }
+    catch { return toolResult("Invalid use_service arguments.", false, "use_service.validation"); }
+    if (Object.keys(args).some((key) => !["service", "action", "arguments_json"].includes(key)) ||
+      typeof args.service !== "string" || typeof args.action !== "string" || typeof args.arguments_json !== "string" ||
+      args.arguments_json.length > 100_000) {
+      return toolResult("use_service needs exact service, action, and arguments_json strings.", false, "use_service.validation");
+    }
     const service = typeof args.service === "string" ? args.service : "";
     const action = typeof args.action === "string" ? args.action : "";
+    if (!this.selectedCapabilityIds.has(`${service}.${action}`)) {
+      return toolResult("This action was not selected for this request. Call discover_services with the owner's task first.", false, "use_service.scope");
+    }
     let parameters: unknown = {};
     try {
       parameters = JSON.parse(
@@ -136,10 +192,15 @@ export class ConnectorToolBridge {
     }
     try {
       const call = this.options.gateway.prepare(service, action, parameters);
+      const policy = evaluateToolAction({ actionId: `${service}.${action}`, args: call.arguments });
+      if (policy.decision === "deny" || (call.mode === "read" && policy.decision !== "allow") ||
+        (call.mode === "write" && policy.decision !== "ask")) {
+        throw new Error(`Service action blocked by final policy: ${policy.reason}.`);
+      }
       if (call.mode === "read") {
         const controller = new AbortController();
         this.activeReads.add(controller);
-        const timeout = setTimeout(() => controller.abort(), 120_000);
+        const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
         try {
           const result = await this.options.gateway.execute(call, controller.signal);
           return toolResult([
@@ -152,7 +213,13 @@ export class ConnectorToolBridge {
           this.activeReads.delete(controller);
         }
       }
-      const task = await this.options.startTask(call);
+      let timer: NodeJS.Timeout | undefined;
+      const task = await Promise.race([
+        this.options.startTask(call),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("Task creation timed out. Check get_task_state before trying again.")), 15_000);
+        }),
+      ]).finally(() => { if (timer) clearTimeout(timer); });
       return toolResult([
         taskSnapshotToRealtimeContext(task),
         `Requested service action: ${connectorCallGoal(call)}`,

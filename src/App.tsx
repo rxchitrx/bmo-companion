@@ -20,6 +20,7 @@ import {
 } from "./voice-session";
 import {
   CodexRealtimeVoiceSession,
+  estimateTranscriptTokens,
   type MicrophoneTrackState,
   type RealtimeUiStatus,
 } from "./realtime-voice-session";
@@ -79,6 +80,25 @@ function taskUsageTitle(task: TaskSnapshot) {
   return [usage, route, phases].filter(Boolean).join(" · ");
 }
 
+function voiceEstimateTitle(
+  estimate: VoiceTranscriptEstimate | null,
+  audioDurationMs: number | null,
+) {
+  const estimateText = estimate
+    ? `Last voice turn ${estimate.turn} transcript estimate: about ${estimate.inputTextTokens} input text tokens and ${estimate.outputTextTokens} reply text tokens. This rough estimate excludes audio and hidden context.`
+    : "No transcript estimate received yet.";
+  const durationText = audioDurationMs != null
+    ? `Codex reported ${Math.round(audioDurationMs / 100) / 10} seconds of audio for the latest usage update.`
+    : "No audio duration received yet.";
+  return `${estimateText} ${durationText} Exact token usage is not currently reported.`;
+}
+
+interface VoiceTranscriptEstimate {
+  turn: number;
+  inputTextTokens: number;
+  outputTextTokens: number;
+}
+
 function UsagePill({ text, detail }: { text: string; detail: string }) {
   return (
     <span
@@ -123,6 +143,9 @@ export function App() {
   const [micTrackState, setMicTrackState] =
     useState<MicrophoneTrackState | null>(null);
   const [voiceUsage, setVoiceUsage] = useState<TokenUsage | null>(null);
+  const [voiceTranscriptEstimate, setVoiceTranscriptEstimate] =
+    useState<VoiceTranscriptEstimate | null>(null);
+  const [voiceAudioDurationMs, setVoiceAudioDurationMs] = useState<number | null>(null);
   const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [modelsOpen, setModelsOpen] = useState(false);
@@ -240,6 +263,7 @@ export function App() {
       setMicWaveform,
       setMicTrackState,
       setVoiceUsage,
+      setVoiceAudioDurationMs,
     );
     sessionRef.current = voiceSession;
 
@@ -254,6 +278,26 @@ export function App() {
           reason: update.reason,
         });
         voiceSession.applyServerUpdate(update);
+        if (
+          update.transcript &&
+          ((update.role === "user" && update.status === "thinking") ||
+            (update.role === "assistant" && update.status === "connected"))
+        ) {
+          const textTokens = estimateTranscriptTokens(update.transcript);
+          setVoiceTranscriptEstimate((previous) =>
+            update.role === "user"
+              ? {
+                  turn: (previous?.turn ?? 0) + 1,
+                  inputTextTokens: textTokens,
+                  outputTextTokens: 0,
+                }
+              : {
+                  turn: previous?.turn ?? 1,
+                  inputTextTokens: previous?.inputTextTokens ?? 0,
+                  outputTextTokens: textTokens,
+                },
+          );
+        }
         if (update.transcript) {
           setVoiceMessage(
             update.role === "user"
@@ -380,6 +424,8 @@ export function App() {
     }
     try {
       setVoiceUsage(null);
+      setVoiceTranscriptEstimate(null);
+      setVoiceAudioDurationMs(null);
       await session.start(selectedMicId);
     } catch {
       // The session has already published a safe, visible degraded state.
@@ -614,24 +660,35 @@ export function App() {
     recall?.answer ||
     (conversationBusy ? latestProgress : undefined) ||
     (taskActive ? task?.summary || latestProgress : ambientNotice || latestProgress);
+  const voiceUsageText = voiceUsage
+    ? `VOICE ${usageBadge(voiceUsage)}`
+    : voiceTranscriptEstimate
+      ? `VOICE EST ~${voiceTranscriptEstimate.inputTextTokens + voiceTranscriptEstimate.outputTextTokens}`
+      : voiceAudioDurationMs != null
+        ? `VOICE ${Math.round(voiceAudioDurationMs / 100) / 10}S`
+        : "VOICE —";
+  const voiceUsageDetail = voiceUsage
+    ? `${usageTitle("Current voice session", voiceUsage)}${voiceAudioDurationMs != null ? ` · Reported audio duration: ${Math.round(voiceAudioDurationMs / 100) / 10} seconds` : ""}`
+    : voiceTranscriptEstimate || voiceAudioDurationMs != null
+      ? voiceEstimateTitle(voiceTranscriptEstimate, voiceAudioDurationMs)
+      : "No voice usage or transcript estimate received yet";
 
   return (
     <main className={`stage stage--${state}`} data-state={state}>
       <div className="grain" aria-hidden="true" />
       <header className="status-line">
-        <span className="status-dot" />
-        <span>{labels[state]}</span>
-        {taskActive && task && <span className="task-id">TASK {task.id.slice(0, 6)}</span>}
-        {taskActive && task?.model && (
-          <span className="task-model" title={`This ${task.kind ?? "general"} Task is using ${task.model} at ${task.effort ?? "default"} reasoning`}>
-            {task.kind ?? "general"} · {task.model.replace("gpt-", "")} · {task.effort ?? "default"}
-          </span>
-        )}
+        <div className="status-summary">
+          <span className="status-dot" />
+          <span>{labels[state]}</span>
+          {taskActive && task && <span className="task-id">TASK {task.id.slice(0, 6)}</span>}
+          {taskActive && task?.model && (
+            <span className="task-model" title={`This ${task.kind ?? "general"} Task is using ${task.model} at ${task.effort ?? "default"} reasoning`}>
+              {task.kind ?? "general"} · {task.model.replace("gpt-", "")} · {task.effort ?? "default"}
+            </span>
+          )}
+        </div>
         <div className="usage-strip" aria-label="Token usage">
-          <UsagePill
-            text={`VOICE ${voiceUsage ? usageBadge(voiceUsage) : "—"}`}
-            detail={voiceUsage ? usageTitle("Current voice session", voiceUsage) : "No voice usage received yet"}
-          />
+          <UsagePill text={voiceUsageText} detail={voiceUsageDetail} />
           <UsagePill
             text={`TASK ${task?.usage ? usageBadge(task.usage) : "—"}`}
             detail={task ? taskUsageTitle(task) : "No Codex task usage received yet"}

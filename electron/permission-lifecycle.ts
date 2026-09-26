@@ -4,7 +4,7 @@ export const TASK_AUTHORITY_VERSION = 1 as const;
 
 export type PermissionDecision = "allow" | "ask" | "deny";
 export type AuthorityState = "pending" | "active" | "paused" | "expired" | "revoked";
-export type AuthorityWorkerId = "codex-task" | "connector-task";
+export type AuthorityWorkerId = "codex-task" | "code-task" | "connector-task";
 
 export interface TaskAuthorityScope {
   taskId: string;
@@ -53,7 +53,7 @@ export function capabilityIdsForTask(
   if (kind === "connector") {
     return connectorCall ? [`${connectorCall.service}.${connectorCall.action}`] : [];
   }
-  if (kind === "coding") return ["codex.workspace"];
+  if (kind === "coding") return ["bmo.code_workspace"];
   if (kind === "computer" || kind === "browser") return ["codex.computer_use"];
   return ["codex.general"];
 }
@@ -70,7 +70,7 @@ export function createTaskAuthorityScope(input: {
   return {
     taskId: input.taskId,
     taskKind,
-    workerId: input.workerId ?? (taskKind === "connector" ? "connector-task" : "codex-task"),
+    workerId: input.workerId ?? (taskKind === "connector" ? "connector-task" : taskKind === "coding" ? "code-task" : "codex-task"),
     objectiveSha256: objectiveSha256(input.goal),
     capabilityIds: [...(
       input.capabilityIds ?? capabilityIdsForTask(taskKind, input.connectorCall)

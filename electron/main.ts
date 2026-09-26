@@ -1,13 +1,10 @@
 import { app, BrowserWindow, ipcMain, powerMonitor, screen, session } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CodexRecoveryObserver, CodexTaskExecutor } from "./codex-adapter.js";
-import { CodexConversationClient, type ConversationUpdate } from "./conversation-client.js";
+import { createCodexInteractionEngine } from "./codex-engine.js";
+import { createBmoTaskEngine } from "./task-engine.js";
+import type { CompanionConversationEngine, CompanionVoiceEngine, ConversationUpdate, RealtimeVoiceUpdate } from "./companion-engine.js";
 import { diagnosticLog, sanitizeDiagnostic, textMeta } from "./diagnostics.js";
-import {
-  CodexRealtimeVoiceClient,
-  type RealtimeVoiceUpdate,
-} from "./realtime-voice-client.js";
 import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
 import { CompanionMemoryService, JsonMemoryStore } from "./memory-service.js";
 import { ComputerUseHealth } from "./computer-use-health.js";
@@ -25,22 +22,18 @@ import {
 } from "./connector-gateway.js";
 import { ConnectorToolBridge } from "./connector-tools.js";
 import { connectorCallGoal, createConnectors } from "./connectors.js";
-import {
-  ConnectorEventMonitor,
-  defaultConnectorWatches,
-} from "./connector-events.js";
 import { TASK_GOAL_MAX_CHARS } from "./context-packet.js";
 import { MinimalExecutionKernel } from "./execution-kernel.js";
+import { JsonToolCallJournal, ToolDispatcher } from "./tool-dispatch.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let runtime: TaskRuntime;
 let memory: CompanionMemoryService;
 let modelSettings: ModelSettingsStore;
-let conversation: CodexConversationClient;
-let realtimeVoice: CodexRealtimeVoiceClient;
+let conversation: CompanionConversationEngine;
+let realtimeVoice: CompanionVoiceEngine;
 let connectorGateway: ConnectorGateway;
-let connectorEvents: ConnectorEventMonitor;
 let modelCatalogPromise: ReturnType<typeof listAvailableModels> | null = null;
 const computerUseHealth = new ComputerUseHealth();
 
@@ -166,15 +159,21 @@ app.whenReady().then(async () => {
   );
   connectorGateway = new ConnectorGateway(
     createConnectors(connectorRunner, appleBridge),
+    undefined,
+    new ToolDispatcher(new JsonToolCallJournal(join(app.getPath("userData"), "tool-calls.json"))),
   );
   const activityLedger = new JsonlActivityLedger(
     join(app.getPath("userData"), "activity-ledger.jsonl"),
+  );
+  const taskEngine = createBmoTaskEngine(
+    computerUseHealth,
+    join(app.getPath("userData"), "code-workspaces"),
   );
   runtime = new TaskRuntime(
     new MinimalExecutionKernel(
       new ConnectorRoutingTaskExecutor(
         connectorGateway,
-        new CodexTaskExecutor(computerUseHealth),
+        taskEngine.taskExecutor,
       ),
       {
         selectConnectorCapabilities: (request) =>
@@ -188,7 +187,7 @@ app.whenReady().then(async () => {
     },
     undefined,
     new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
-    new CodexRecoveryObserver(),
+    taskEngine.recoveryObserver,
     undefined,
     undefined,
     memory,
@@ -201,32 +200,29 @@ app.whenReady().then(async () => {
     }),
     readCurrentTask: () => runtime.currentTask(),
   });
-  conversation = new CodexConversationClient(
-    () => runtime.currentTask(),
-    () => modelSettings.selection("conversation"),
+  const voiceConnectorTools = new ConnectorToolBridge({
+    gateway: connectorGateway,
+    startTask: (call) => runtime.create(connectorCallGoal(call), {
+      kind: "connector",
+      connectorCall: call,
+    }),
+    readCurrentTask: () => runtime.currentTask(),
+  });
+  const interactions = createCodexInteractionEngine({
+    readTask: () => runtime.currentTask(),
+    readConversationModel: () => modelSettings.selection("conversation"),
     connectorTools,
-  );
-  realtimeVoice = new CodexRealtimeVoiceClient(
-    (goal, kind, retryOf) => {
+    voiceConnectorTools,
+    startTask: (goal, kind, retryOf) => {
       const selection = modelSettings.selection(kind);
       return retryOf
         ? runtime.createRetry(retryOf.id, goal, { kind, ...selection })
         : runtime.create(goal, { kind, ...selection });
     },
-    () => runtime.cancelActive(),
-    () => runtime.currentTask(),
-    connectorTools,
-  );
-  connectorEvents = new ConnectorEventMonitor(
-    connectorGateway,
-    defaultConnectorWatches(),
-    async (signal) => {
-      mainWindow?.webContents.send("connector:event", signal);
-      return realtimeVoice.syncConnectorSignal(signal);
-    },
-    activityLedger,
-  );
-  connectorEvents.start();
+    stopTask: () => runtime.cancelActive(),
+  });
+  conversation = interactions.conversation;
+  realtimeVoice = interactions.voice;
   void runtime.restore().then((task) => {
     computerUseHealth.observeFailure(task?.summary);
   });
@@ -279,8 +275,6 @@ ipcMain.handle("voice:realtime:start", async (_event, rawOfferSdp: string) => {
   diagnosticLog("main", "ipc.voice.realtime.start", { sdp: offerSdp });
   try {
     const result = await realtimeVoice.start(offerSdp, emitRealtimeVoice);
-    await connectorEvents.flushPending((signal) =>
-      realtimeVoice.syncConnectorSignal(signal));
     diagnosticLog("main", "ipc.voice.realtime.started", {
       sessionId: result.sessionId,
       elapsedMs: Date.now() - startedAt,
@@ -364,7 +358,6 @@ ipcMain.on("diagnostic:client", (_event, payload: unknown) => {
 });
 
 app.on("before-quit", () => {
-  connectorEvents?.stop();
   diagnosticLog("main", "application.before_quit");
   void realtimeVoice.stop("application shutdown");
   conversation.stop();

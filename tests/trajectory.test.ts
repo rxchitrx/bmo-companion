@@ -8,6 +8,9 @@ import {
   validateTrajectoryRecord,
   type TrajectoryRecord,
 } from "../electron/trajectory.ts";
+import { MinimalExecutionKernel, type KernelLifecycleEvent } from "../electron/execution-kernel.ts";
+import { allowTaskAuthority, createTaskAuthorityScope } from "../electron/permission-lifecycle.ts";
+import type { TaskExecutor } from "../electron/task-runtime.ts";
 
 function baseRecorder(trajectoryId = "fixture-trajectory") {
   return new TrajectoryRecorder({
@@ -105,6 +108,52 @@ test("trajectory recording retains metadata and digests content", () => {
   assert.equal(record.events[0]?.metadata.goal && typeof record.events[0].metadata.goal, "object");
   assert.equal(record.guardrailOutcomes[0]?.summaryDigest.sha256.length, 64);
   assert.equal(record.verificationEvidence[0]?.statementDigest.sha256.length, 64);
+});
+
+test("a verified kernel outcome is represented in the trace with the matching decision", async () => {
+  const now = new Date("2026-09-24T10:00:00.000Z");
+  const taskId = "trace-verified-task";
+  const goal = "Read one approved fixture value";
+  const scope = createTaskAuthorityScope({ taskId, goal, taskKind: "general" });
+  const events: KernelLifecycleEvent[] = [];
+  const worker: TaskExecutor = {
+    async execute() {
+      return { summary: "The approved fixture value is visible.", verified: true };
+    },
+  };
+  const kernel = new MinimalExecutionKernel(worker, {
+    onEvent: (event) => events.push(event),
+    now: () => now,
+  });
+  const result = await kernel.execute(
+    goal,
+    new AbortController().signal,
+    () => {},
+    undefined,
+    undefined,
+    {
+      taskId,
+      kind: "general",
+      authority: allowTaskAuthority(scope, now, new Date("2026-09-24T11:00:00.000Z")),
+    },
+  );
+  const recorder = new TrajectoryRecorder({
+    taskId,
+    goal,
+    kind: "general",
+    model: "fixture-model",
+    effort: "low",
+    trajectoryId: "trace-verified-outcome",
+  });
+  for (const event of events) recorder.recordKernelEvent(event);
+  const record = recorder.toRecord();
+  const outcome = record.events.find((entry) => entry.type === "kernel.outcome_verified");
+
+  assert.equal(result.verified, true);
+  assert.equal(result.verificationDecision?.status, "verified");
+  assert.equal(outcome?.metadata.outcomeStatus, "verified");
+  assert.equal(record.events.at(-1)?.type, "kernel.outcome_verified");
+  assert.deepEqual(validateTrajectoryRecord(record), []);
 });
 
 test("usage snapshots are stored as deterministic deltas", () => {

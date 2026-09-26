@@ -22,6 +22,8 @@ export interface LocalSafeCanaryRuntimeOptions {
   codexPath?: string;
   /** Bound the local model turn; no retry is attempted after expiry. */
   timeoutMs?: number;
+  model?: string;
+  reasoningEffort?: string;
 }
 
 const DEFAULT_CODEX_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex";
@@ -267,18 +269,18 @@ async function runReadOnlyCodexTurn(
         ? candidate as Record<string, unknown>
         : undefined;
       if (value) {
-        const number = (key: string) =>
-          typeof value[key] === "number" && Number.isFinite(value[key])
-            ? Math.max(0, Math.round(value[key] as number))
-            : 0;
-        latestUsage = {
-          inputTokens: number("inputTokens"),
-          cachedInputTokens: number("cachedInputTokens"),
-          outputTokens: number("outputTokens"),
-          reasoningOutputTokens: number("reasoningOutputTokens"),
-          totalTokens: number("totalTokens"),
-        };
-        if (latestUsage.totalTokens > 0) context.usage(latestUsage);
+        const keys = ["inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"] as const;
+        if (keys.every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && (value[key] as number) >= 0) &&
+            (value.cachedInputTokens as number) <= (value.inputTokens as number)) {
+          latestUsage = {
+            inputTokens: value.inputTokens as number,
+            cachedInputTokens: value.cachedInputTokens as number,
+            outputTokens: value.outputTokens as number,
+            reasoningOutputTokens: value.reasoningOutputTokens as number,
+            totalTokens: value.totalTokens as number,
+          };
+          context.usage(latestUsage);
+        }
       }
       return;
     }
@@ -372,6 +374,8 @@ async function runReadOnlyCodexTurn(
     const turn = await request("turn/start", {
       threadId,
       input: [{ type: "text", text: prompt }],
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.reasoningEffort ? { effort: options.reasoningEffort } : {}),
     });
     turnId = turn.turn.id;
     turnStartedAt = Date.now();
@@ -412,6 +416,8 @@ export function createLocalSafeCanaryRuntime(
     cwd: input.cwd,
     codexPath: input.codexPath ?? process.env.CODEX_CLI_PATH ?? DEFAULT_CODEX_PATH,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    model: input.model ?? "",
+    reasoningEffort: input.reasoningEffort ?? "",
   };
 
   return {

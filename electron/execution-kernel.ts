@@ -38,7 +38,7 @@ export interface ExecutionCapabilityManifest {
   version: typeof EXECUTION_KERNEL_VERSION;
   authority: "selection-only";
   worker: {
-    id: "codex-task" | "connector-task";
+    id: "codex-task" | "code-task" | "connector-task";
     scope: "one-task";
     maxInstances: 1;
   };
@@ -160,7 +160,7 @@ export function createExecutionCapabilityManifest(
   return {
     version: EXECUTION_KERNEL_VERSION,
     authority: "selection-only",
-    worker: { id: "codex-task", scope: "one-task", maxInstances: 1 },
+    worker: { id: packet.purpose.taskKind === "coding" ? "code-task" : "codex-task", scope: "one-task", maxInstances: 1 },
     selectedCapabilityIds: capabilities.map((capability) => capability.id),
     capabilities,
   };

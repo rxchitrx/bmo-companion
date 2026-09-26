@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type {
   AccountUsage,
@@ -26,6 +27,8 @@ import {
 } from "./execution-kernel.js";
 import { ComputerUseHealth } from "./computer-use-health.js";
 import { CodexTaskLifecycle } from "./codex-task-lifecycle.js";
+import { codeWorkerEnvironment, createCodeWorkspace } from "./code-workspace.js";
+import { toolArgumentsHash } from "./tool-policy.js";
 
 interface JsonRpcMessage {
   id?: number;
@@ -106,8 +109,12 @@ function itemDiagnostic(item: Record<string, any> | undefined) {
   };
 }
 
-function budgetItemFingerprint(item: Record<string, any> | undefined) {
-  return [item?.type ?? "unknown", item?.server ?? "", item?.tool ?? item?.name ?? ""]
+export function budgetItemFingerprint(item: Record<string, any> | undefined) {
+  const argumentShape = item?.arguments ?? item?.input ?? item?.command;
+  const identity = argumentShape === undefined
+    ? `item:${String(item?.id ?? randomUUID())}`
+    : toolArgumentsHash(argumentShape);
+  return [item?.type ?? "unknown", item?.server ?? "", item?.tool ?? item?.name ?? "", identity]
     .map(String)
     .join(":");
 }
@@ -128,21 +135,15 @@ function executionDiagnostic(execution: TaskExecutionOptions | undefined) {
   };
 }
 
-export function createTaskThreadParams(cwd: string) {
+export function createTaskThreadParams(cwd: string, kind: TaskExecutionOptions["kind"] = "general") {
   return {
     cwd,
     ephemeral: true,
-    approvalPolicy: {
-      granular: {
-        mcp_elicitations: true,
-        request_permissions: true,
-        rules: true,
-        sandbox_approval: true,
-        skill_approval: true,
-      },
-    },
+    // The owner approved the scoped BMO Task, not a later request to escape
+    // its filesystem sandbox or grant a new MCP/OS permission.
+    approvalPolicy: "never",
     approvalsReviewer: "user",
-    sandbox: "workspace-write",
+    sandbox: kind === "coding" ? "workspace-write" : "read-only",
     environments: [],
     selectedCapabilityRoots: [],
     config: {
@@ -162,66 +163,30 @@ export function taskServerRequestReply(
   params: Record<string, any>,
   authorityActive: boolean,
 ): { result?: unknown; error?: { code: number; message: string } } {
-  if (!authorityActive) {
-    if (
-      method === "item/commandExecution/requestApproval" ||
-      method === "item/fileChange/requestApproval"
-    ) {
-      return { result: { decision: "cancel" } };
-    }
-    if (method === "mcpServer/elicitation/request") {
-      return { result: { action: "decline", content: null } };
-    }
-    if (method === "item/permissions/requestApproval") {
-      return { result: { scope: "turn", permissions: {} } };
-    }
-    return {
-      error: { code: -32001, message: "Task authority has been revoked." },
-    };
-  }
-
-  if (method === "item/permissions/requestApproval") {
-    return {
-      result: { scope: "turn", permissions: params.permissions ?? {} },
-    };
-  }
+  // This final guard is deliberately monotonic: neither an approved Task nor
+  // any app-server extension can promote an escalation request to allow.
   if (
     method === "item/commandExecution/requestApproval" ||
     method === "item/fileChange/requestApproval"
   ) {
-    return { result: { decision: "accept" } };
+    return { result: { decision: "cancel" } };
+  }
+  if (method === "item/permissions/requestApproval") {
+    return { result: { scope: "turn", permissions: {} } };
   }
   if (method === "mcpServer/elicitation/request") {
-    if (params.mode === "url") {
-      return { result: { action: "decline", content: null } };
-    }
-    const schema = params.requestedSchema as {
-      properties?: Record<string, any>;
-    } | undefined;
-    const content: Record<string, unknown> = {};
-    for (const [key, field] of Object.entries(schema?.properties ?? {})) {
-      if (field.const !== undefined) content[key] = field.const;
-      else if (field.default !== undefined) content[key] = field.default;
-      else if (Array.isArray(field.enum) && field.enum.length) {
-        content[key] = field.enum[0];
-      } else if (field.type === "boolean") content[key] = true;
-    }
-    const isToolApproval =
-      params._meta?.codex_approval_kind === "mcp_tool_call";
-    return {
-      result:
-        isToolApproval && Object.keys(content).length === 0
-          ? { action: "accept", content: {}, _meta: { persist: "session" } }
-          : { action: "accept", content },
-    };
+    return { result: { action: "decline", content: null } };
   }
-  return { error: { code: -32601, message: "Unsupported request" } };
+  return { error: { code: -32601, message: authorityActive ? "Unsupported or unscoped request" : "Task authority has been revoked." } };
 }
 
 export class CodexTaskExecutor implements TaskExecutor {
   private child: ChildProcessWithoutNullStreams | null = null;
 
-  constructor(private readonly computerUseHealth = new ComputerUseHealth()) {}
+  constructor(
+    private readonly computerUseHealth = new ComputerUseHealth(),
+    private readonly codeWorkspacesDirectory?: string,
+  ) {}
 
   async execute(
     goal: string,
@@ -232,6 +197,10 @@ export class CodexTaskExecutor implements TaskExecutor {
     execution?: TaskExecutionOptions,
   ): Promise<ExecutionResult> {
     const requestedAt = Date.now();
+    const workspace = execution?.kind === "coding"
+      ? await createCodeWorkspace(process.cwd(), execution.taskId ?? randomUUID(), this.codeWorkspacesDirectory, signal)
+      : process.cwd();
+    if (execution?.kind === "coding") progress(`Isolated code workspace: ${workspace}`);
     let processSpawnedAt = requestedAt;
     let turnStartedAt = requestedAt;
     let turnCompletedAt = requestedAt;
@@ -256,8 +225,8 @@ export class CodexTaskExecutor implements TaskExecutor {
     if (!existsSync(codex)) throw new Error(`Codex executable not found: ${codex}`);
 
     const child = spawn(codex, ["app-server", "--listen", "stdio://"], {
-      cwd: process.cwd(),
-      env: { ...process.env },
+      cwd: workspace,
+      env: codeWorkerEnvironment(process.env),
       detached: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -280,6 +249,15 @@ export class CodexTaskExecutor implements TaskExecutor {
     let terminationStarted = false;
     const lifecycle = new CodexTaskLifecycle();
     const terminationTimers: NodeJS.Timeout[] = [];
+    const activeToolTimers = new Map<string, NodeJS.Timeout>();
+    const activeToolFingerprints = new Map<string, string>();
+    const toolItemKey = (item: Record<string, any> | undefined) =>
+      String(item?.id ?? [item?.type, item?.server, item?.tool ?? item?.name].join(":"));
+    const clearToolTimers = () => {
+      for (const timer of activeToolTimers.values()) clearTimeout(timer);
+      activeToolTimers.clear();
+      activeToolFingerprints.clear();
+    };
     const pending = new Map<number, {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
@@ -396,21 +374,38 @@ export class CodexTaskExecutor implements TaskExecutor {
       } else if (message.method === "item/started") {
         const type = params.item?.type;
         lifecycle.itemStarted(params.item ?? {});
-        if (type && !["agentMessage", "reasoning"].includes(type)) {
+        if (type && !["agentMessage", "reasoning", "userMessage"].includes(type)) {
+          const itemKey = toolItemKey(params.item);
+          const fingerprint = budgetItemFingerprint(params.item);
+          activeToolFingerprints.set(itemKey, fingerprint);
+          const previous = activeToolTimers.get(itemKey);
+          if (previous) clearTimeout(previous);
+          activeToolTimers.set(itemKey, setTimeout(() => {
+            activeToolTimers.delete(itemKey);
+            failedTool = true;
+            progress(`Codex ${type} exceeded its 120-second tool deadline. Stopping the Task for review.`);
+            terminate(`tool ${type} timed out`, true);
+          }, 120_000));
           execution?.budgetObserver?.({
             type: "tool-started",
-            fingerprint: budgetItemFingerprint(params.item),
+            fingerprint,
           });
           progress(`Codex started ${type}.`);
         }
       } else if (message.method === "item/completed") {
         const item = params.item;
+        const itemKey = toolItemKey(item);
+        const fingerprint = activeToolFingerprints.get(itemKey) ?? budgetItemFingerprint(item);
+        activeToolFingerprints.delete(itemKey);
+        const timer = activeToolTimers.get(itemKey);
+        if (timer) clearTimeout(timer);
+        activeToolTimers.delete(itemKey);
         lifecycle.itemCompleted(item ?? {});
         if (item?.type === "agentMessage" && item.text) finalText = item.text;
-        if (item?.type && !["agentMessage", "reasoning"].includes(item.type)) {
+        if (item?.type && !["agentMessage", "reasoning", "userMessage"].includes(item.type)) {
           execution?.budgetObserver?.({
             type: "tool-completed",
-            fingerprint: budgetItemFingerprint(item),
+            fingerprint,
             failed: item.status === "failed",
           });
         }
@@ -451,6 +446,7 @@ export class CodexTaskExecutor implements TaskExecutor {
     const terminate = (reason: string, interrupt: boolean) => {
       if (terminationStarted) return;
       terminationStarted = true;
+      clearToolTimers();
       authorityRevoked ||= interrupt;
       if (interrupt) lifecycle.revoke();
       diagnosticLog("codex.task", "process.stop", {
@@ -479,6 +475,7 @@ export class CodexTaskExecutor implements TaskExecutor {
     signal.addEventListener("abort", revokeAuthority, { once: true });
     child.once("exit", (code, processSignal) => {
       for (const timer of terminationTimers) clearTimeout(timer);
+      clearToolTimers();
       const failure = new Error(
         authorityRevoked
           ? "Task authority was revoked."
@@ -541,7 +538,7 @@ export class CodexTaskExecutor implements TaskExecutor {
         capabilities: { experimentalApi: true, mcpServerOpenaiFormElicitation: true },
       });
       send({ method: "initialized" });
-      const threadParams = createTaskThreadParams(process.cwd());
+      const threadParams = createTaskThreadParams(workspace, execution?.kind);
       recordContextSnapshot(
         "codex.task",
         "thread.start",
@@ -571,6 +568,13 @@ export class CodexTaskExecutor implements TaskExecutor {
       });
       const capabilityManifest = execution?.capabilityManifest ??
         createExecutionCapabilityManifest(contextPacket);
+      const surfaceInstruction = execution?.kind === "coding"
+        ? `This is a source-code Task. Use only code editing and shell tools inside the isolated Git worktree at the current working directory. Do not use Computer Use, browser UI, AppleScript, or a connector to edit code. Do not read or write outside the worktree. If code editing tools are unavailable, report UNVERIFIED instead of trying another surface.`
+        : `When the goal depends on a visible macOS app or browser UI, use Computer Use as
+the primary execution surface from the first action. Do not launch, focus, or
+control GUI apps through shell commands, \`open\`, AppleScript, or other
+command-execution fallbacks. Observe the live UI, act, then re-observe to verify.
+This is a general capability-routing rule, not an app-specific workflow.`;
       const workerInstruction = `You are the execution worker for BMO, a personal Mac Companion.
 Complete only the purpose in the Task Context Packet. The packet contains only
 task-scoped context selected by BMO. Do not request or infer ambient conversation
@@ -585,11 +589,7 @@ anything. Verify the requested real-world outcome before claiming completion.
 Always inspect the current state before acting. If the goal is already satisfied,
 verify it and finish without repeating the action.
 
-When the goal depends on a visible macOS app or browser UI, use Computer Use as
-the primary execution surface from the first action. Do not launch, focus, or
-control GUI apps through shell commands, \`open\`, AppleScript, or other
-command-execution fallbacks. Observe the live UI, act, then re-observe to verify.
-This is a general capability-routing rule, not an app-specific workflow.
+${surfaceInstruction}
 
 End with exactly one of these prefixes:
 VERIFIED OUTCOME: only when direct evidence confirms the requested condition.
