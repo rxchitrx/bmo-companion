@@ -31,6 +31,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `electron/execution-kernel.ts` — one-worker Task orchestration and the typed VerifiedOutcome boundary.
 - `electron/execution-guardrails.ts` — bounded cost/runaway counters and deterministic stop outcomes.
 - `docs/EXECUTION-KERNEL.md` — execution flow, lifecycle event contract, and integration requirements.
+- `docs/issues/17-select-a-project-by-voice.md` — planned voice-controlled project selection for coding Tasks.
 
 ## Important boundaries
 
