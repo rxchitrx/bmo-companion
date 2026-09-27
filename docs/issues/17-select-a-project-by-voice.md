@@ -19,7 +19,7 @@ Let the owner register a local project once with a native folder picker and give
 
 ## Related work
 
-After selection, finish the owner-facing code review flow: show changed files and verification evidence, then let the owner apply or discard the isolated result explicitly. Commit, push, and publishing remain separately confirmed actions.
+After selection, finish the [owner-facing code review flow](18-review-and-apply-code-task-results.md): show changed files and verification evidence, then let the owner apply or discard the isolated result explicitly. Commit, push, and publishing remain separately confirmed actions.
 
 ## Current boundary
 
