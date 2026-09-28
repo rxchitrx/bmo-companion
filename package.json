@@ -17,7 +17,8 @@
     "eval:pi-coding-live": "tsx evaluation/pi-coding-adapter-live.ts",
     "eval:laya-routing": "tsx evaluation/laya-routing-lab.ts",
     "setup:laya": "sh scripts/setup-laya.sh",
-    "eval:project-workflow-live": "tsx evaluation/project-workflow-live.ts"
+    "eval:project-workflow-live": "tsx evaluation/project-workflow-live.ts",
+    "eval:node-project-workflow-live": "tsx evaluation/node-project-workflow-live.ts"
   },
   "dependencies": {
     "electron": "^35.7.5",

@@ -1,0 +1,44 @@
+{
+  "taskId": "00a38061-639a-405f-a0a9-26a3faab094e",
+  "savedProjectId": "c0652e3a-0b8b-4b83-87f3-84e59db1b38e",
+  "selectedByAlias": true,
+  "pendingBeforeApproval": true,
+  "status": "completed",
+  "usage": {
+    "inputTokens": 3485,
+    "cachedInputTokens": 0,
+    "outputTokens": 117,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 3602
+  },
+  "codeReview": {
+    "digest": "d9dffa687f903fa8046c0d1934f78672e889668736ce65346df2a3362fd1ebe6",
+    "changed": [
+      "counter.js"
+    ],
+    "verification": {
+      "label": "npm test",
+      "exitCode": 0,
+      "output": "\n> test\n> node --test\n\nTAP version 13\n# Subtest: increments\nok 1 - increments\n  ---\n  duration_ms: 0.256542\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 33.582083\n",
+      "passed": true
+    }
+  },
+  "sourceUntouchedBeforeApply": true,
+  "applied": true,
+  "hiddenPass": true,
+  "error": "",
+  "sourceStatus": "M counter.js",
+  "ledgerEvents": [
+    "task.created",
+    "task.approved",
+    "task.running",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.completed"
+  ],
+  "pass": true
+}

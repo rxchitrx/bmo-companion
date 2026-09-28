@@ -1,0 +1,29 @@
+{
+  "task": "BMO diagnostics access_token redaction",
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "provider": "openai-codex subscription through Pi",
+  "route": "Pi adapter directly",
+  "adapterVerified": false,
+  "hiddenPass": true,
+  "hiddenDetail": "Hidden access_token contract passed.",
+  "pass": false,
+  "summary": "UNVERIFIED: The approved project check failed, found no tests, or changed the worktree.  type: 'test'\n  ...\n# Subtest: voice transport failure becomes degraded without discarding the session\nok 173 - voice transport failure becomes degraded without discarding the session\n  ---\n  duration_ms: 0.356\n  type: 'test'\n  ...\n# Subtest: spoken completion is concise for the Stage\nok 174 - spoken completion is concise for the Stage\n  ---\n  duration_ms: 0.194334\n  type: 'test'\n  ...\n1..174\n# tests 174\n# suites 0\n# pass 169\n# fail 5\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1327.591084\n",
+  "usage": {
+    "inputTokens": 3778,
+    "cachedInputTokens": 0,
+    "outputTokens": 115,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 3893
+  },
+  "timing": {
+    "startupMs": 0,
+    "executionMs": 11274,
+    "settlingMs": 1502,
+    "shutdownMs": 0,
+    "totalMs": 12776
+  },
+  "workspace": "/private/var/folders/m1/qcwj2y5x1mn0ksy8wxfc7d040000gn/T/bmo-pi-live-o4WdRB/workspaces/2c55dfe9-be0b-487d-8a4f-2496bd6bc493",
+  "durationMs": 12836,
+  "sourceCheckoutUnchanged": true
+}

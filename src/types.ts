@@ -76,8 +76,8 @@ export type VerificationPreset = "npm-test" | "python-unittest" | "pytest";
 export interface SavedProject { id: string; name: string; aliases: string[]; root: string; verification: VerificationPreset; }
 export interface CodeProjectRef extends SavedProject { baseCommit: string; }
 export interface ProjectList { projects: SavedProject[]; activeId?: string; }
-export interface CodeReview { taskId: string; projectName: string; root: string; workspace: string; changed: string[]; diff: string; verified: boolean; verification?: { label: string; exitCode: number | null; output: string; passed: boolean }; state?: "applying" | "applied" | "discarded"; }
-export interface CodeReviewEntry { id: string; projectName: string; summary?: string; status: TaskStatus; state?: "applying" | "applied" | "discarded"; }
+export interface CodeReview { taskId: string; projectName: string; root: string; workspace: string; changed: string[]; diff: string; verified: boolean; verification?: { label: string; exitCode: number | null; output: string; passed: boolean }; state?: "applying" | "applied" | "discarding" | "discarded"; }
+export interface CodeReviewEntry { id: string; projectName: string; summary?: string; status: TaskStatus; state?: "applying" | "applied" | "discarding" | "discarded"; }
 export interface ConnectorActionSummary {
   name: string;
   label: string;

@@ -12,12 +12,20 @@ const exec = promisify(execFile);
 async function git(cwd: string, args: string[]) {
   return (await exec("git", args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
 }
-type ReviewState = "applying" | "applied" | "discarded";
+type ReviewState = "applying" | "applied" | "discarding" | "discarded";
 export interface CodeReview { taskId: string; projectName: string; root: string; workspace: string; changed: string[]; diff: string; verified: boolean; verification?: { label: string; exitCode: number | null; output: string; passed: boolean }; state?: ReviewState; }
 
 export class CodeReviewService {
   constructor(private readonly workspacesDirectory: string, private readonly journalPath: string) {}
   private indexWrite: Promise<void> = Promise.resolve();
+  private journalWrite: Promise<void> = Promise.resolve();
+  private busy = new Set<string>();
+  private async exclusive<T>(id: string, action: () => Promise<T>): Promise<T> {
+    if (this.busy.has(id)) throw new Error("A decision for this code result is already in progress.");
+    this.busy.add(id);
+    try { return await action(); }
+    finally { this.busy.delete(id); }
+  }
 
   private async journal(): Promise<Record<string, ReviewState>> {
     try { return JSON.parse(await readFile(this.journalPath, "utf8")) as Record<string, ReviewState>; }
@@ -44,16 +52,21 @@ export class CodeReviewService {
   }
   async task(id: string) { await this.indexWrite; return (await this.index())[id]; }
   async list() {
-    await this.indexWrite;
+    await Promise.all([this.indexWrite, this.journalWrite]);
     const [tasks, states] = await Promise.all([this.index(), this.journal()]);
     return Object.values(tasks).map((task) => ({ id: task.id, projectName: task.project?.name ?? "Project", summary: task.summary, state: states[task.id], status: task.status }));
   }
-  private async mark(taskId: string, state: ReviewState) {
-    const data = await this.journal(); data[taskId] = state;
-    await mkdir(dirname(this.journalPath), { recursive: true });
-    const temp = `${this.journalPath}.${randomUUID()}.tmp`;
-    await writeFile(temp, `${JSON.stringify(data)}\n`, { mode: 0o600 });
-    await rename(temp, this.journalPath);
+  private mark(taskId: string, state: ReviewState): Promise<void> {
+    const write = async () => {
+      const data = await this.journal(); data[taskId] = state;
+      await mkdir(dirname(this.journalPath), { recursive: true });
+      const temp = `${this.journalPath}.${randomUUID()}.tmp`;
+      await writeFile(temp, `${JSON.stringify(data)}\n`, { mode: 0o600 });
+      await rename(temp, this.journalPath);
+    };
+    const pending = this.journalWrite.then(write, write);
+    this.journalWrite = pending.catch(() => {});
+    return pending;
   }
   private async locate(task: TaskSnapshot) {
     if (task.kind !== "coding" || !task.project || !task.codeReview || !/^[a-f0-9-]{36}$/.test(task.id)) throw new Error("No code result is available for review.");
@@ -66,10 +79,11 @@ export class CodeReviewService {
     return { workspace: actual, project: task.project, review: task.codeReview };
   }
   async review(task: TaskSnapshot): Promise<CodeReview> {
+    await this.journalWrite;
     const state = (await this.journal())[task.id];
-    if (state === "discarded" && task.project && task.codeReview) {
+    if ((state === "discarding" || state === "discarded") && task.project && task.codeReview) {
       return { taskId: task.id, projectName: task.project.name, root: task.project.root, workspace: "", changed: task.codeReview.changed,
-        diff: "This isolated result was discarded.", verified: task.status === "completed", verification: task.codeReview.verification, state };
+        diff: state === "discarded" ? "This isolated result was discarded." : "Discard was interrupted. Inspect this Task's worktree before cleanup.", verified: task.status === "completed", verification: task.codeReview.verification, state };
     }
     const { workspace, project, review } = await this.locate(task);
     const current = await workspaceState(workspace);
@@ -85,7 +99,8 @@ export class CodeReviewService {
     return { taskId: task.id, projectName: project.name, root: project.root, workspace, changed: current.changed, diff: preview,
       verified: task.status === "completed", verification: review.verification, state };
   }
-  async apply(task: TaskSnapshot) {
+  apply(task: TaskSnapshot) { return this.exclusive(task.id, () => this.applyUnlocked(task)); }
+  private async applyUnlocked(task: TaskSnapshot) {
     if (task.status !== "completed") throw new Error("Only a verified completed code Task can be applied.");
     const review = await this.review(task);
     if (review.state) throw new Error("This code result was already applied, discarded, or interrupted. Inspect the project before another action.");
@@ -126,9 +141,11 @@ export class CodeReviewService {
     }
     } finally { await rm(scratch, { recursive: true, force: true }); }
   }
-  async discard(task: TaskSnapshot) {
+  discard(task: TaskSnapshot) { return this.exclusive(task.id, () => this.discardUnlocked(task)); }
+  private async discardUnlocked(task: TaskSnapshot) {
     const review = await this.review(task);
     if (review.state) throw new Error("This code result was already handled or interrupted.");
+    await this.mark(task.id, "discarding");
     await git(task.project!.root, ["worktree", "remove", "--force", review.workspace]);
     await this.mark(task.id, "discarded");
     return { discarded: true };

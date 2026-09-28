@@ -1,6 +1,6 @@
 # Verify code tasks across project types
 
-Status: Implemented with approved Node, Python unittest, and pytest presets. Automated tests and a live isolated Python task pass; additional live project types and cancellation walkthroughs remain open.
+Status: Implemented with approved Node, Python unittest, and pytest presets. Automated tests and live isolated Node and Python tasks pass. BMO's own `npm test` suite cannot pass inside its verifier sandbox because several tests start another macOS sandbox; that coding Task correctly stays unverified. See `outputs/evaluation/pi-coding-nested-sandbox-2026-09-28.json`. A safe check strategy for projects that test sandboxes themselves remains open.
 
 ## What to build
 

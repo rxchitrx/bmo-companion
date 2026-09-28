@@ -35,6 +35,8 @@ export function piSandboxProfile(workspace: string, scratch: string, piAgentDire
     "(allow sysctl-read)",
     "(allow mach-lookup)",
     "(allow file-read*)",
+    // Git opens this device read-write while tests create temporary repositories.
+    "(allow file-write* (literal \"/dev/null\"))",
     ...(!network ? ["(allow network-bind)"] : []),
     `(allow file-write* (subpath ${sandboxString(workspace)}))`,
     `(allow file-write* (subpath ${sandboxString(scratch)}))`,

@@ -83,6 +83,8 @@ test("macOS sandbox profile permits only worktree and scratch writes", async (co
   const allowed = execFileSync("sandbox-exec", ["-f", profile, "/bin/sh", "-c", "echo ok > workspace/inside", "sh"], { cwd: base });
   assert.equal(allowed.length, 0);
   assert.equal(await readFile(join(workspace, "inside"), "utf8"), "ok\n");
+  execFileSync("sandbox-exec", ["-f", profile, "git", "init", "-q", "temporary-repo"], { cwd: workspace });
+  assert.ok((await lstat(join(workspace, "temporary-repo", ".git"))).isDirectory());
   assert.throws(() => execFileSync("sandbox-exec", ["-f", profile, "/bin/sh", "-c", "echo bad > outside", "sh"], { cwd: base, stdio: "ignore" }));
   await assert.rejects(lstat(join(base, "outside")));
 });

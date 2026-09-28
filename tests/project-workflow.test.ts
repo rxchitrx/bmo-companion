@@ -139,3 +139,39 @@ test("code results survive restart and keep their review decision", async (t) =>
   assert.equal((await new CodeReviewService(workspaces, journal).list())[0].state, "discarded");
   assert.equal(await readFile(join(root, "app.js"), "utf8"), "export const value = 1;\n");
 });
+
+test("simultaneous result decisions cannot apply and discard the same worktree", async (t) => {
+  const { base, root, registry } = await fixture(t);
+  const project = await registry.snapshot((await registry.add(root, "BMO", "npm-test")).id);
+  const taskId = "66666666-6666-4666-8666-666666666666";
+  const workspaces = join(base, "workspaces");
+  await exec("mkdir", [workspaces]);
+  const workspace = join(workspaces, taskId);
+  await git(root, "worktree", "add", "--detach", workspace, "HEAD");
+  await writeFile(join(workspace, "app.js"), "export const value = 7;\n");
+  const task: TaskSnapshot = { id: taskId, goal: "Change value", kind: "coding", status: "completed", state: "speaking", progress: [], project, codeReview: await workspaceState(workspace) };
+  const service = new CodeReviewService(workspaces, join(base, "review.json"));
+  const [apply, discard] = await Promise.allSettled([service.apply(task), service.discard(task)]);
+  assert.equal(apply.status, "fulfilled");
+  assert.equal(discard.status, "rejected");
+  assert.match((discard as PromiseRejectedResult).reason.message, /already in progress/);
+  assert.equal(await readFile(join(root, "app.js"), "utf8"), "export const value = 7;\n");
+});
+
+test("interrupted apply remains locked after restart", async (t) => {
+  const { base, root, registry } = await fixture(t);
+  const project = await registry.snapshot((await registry.add(root, "BMO", "npm-test")).id);
+  const taskId = "77777777-7777-4777-8777-777777777777";
+  const workspaces = join(base, "workspaces");
+  await exec("mkdir", [workspaces]);
+  const workspace = join(workspaces, taskId);
+  await git(root, "worktree", "add", "--detach", workspace, "HEAD");
+  await writeFile(join(workspace, "app.js"), "export const value = 8;\n");
+  const task: TaskSnapshot = { id: taskId, goal: "Change value", kind: "coding", status: "completed", state: "speaking", progress: [], project, codeReview: await workspaceState(workspace) };
+  const journal = join(base, "review.json");
+  await writeFile(journal, JSON.stringify({ [taskId]: "applying" }));
+  const service = new CodeReviewService(workspaces, journal);
+  assert.equal((await service.review(task)).state, "applying");
+  await assert.rejects(service.apply(task), /already applied, discarded, or interrupted/);
+  assert.equal(await readFile(join(root, "app.js"), "utf8"), "export const value = 1;\n");
+});
