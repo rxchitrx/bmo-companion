@@ -1,0 +1,47 @@
+{
+  "taskId": "f47dc8d3-58bf-4768-9c18-24c6ed023709",
+  "savedProjectId": "98d1d903-ec2c-4d69-b562-aa9ab1e13b01",
+  "selectedByAlias": true,
+  "pendingBeforeApproval": true,
+  "status": "completed",
+  "summary": "VERIFIED OUTCOME: Updated `counter.py` so `next_value` returns its integer argument plus one.",
+  "usage": {
+    "inputTokens": 3447,
+    "cachedInputTokens": 0,
+    "outputTokens": 99,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 3546
+  },
+  "codeReview": {
+    "digest": "ecbe577cfd26198342f827c9a2c93d0b1cbbeda43fcc5310ff734860e443ad89",
+    "changed": [
+      "counter.py"
+    ],
+    "verification": {
+      "label": "python3 -m unittest discover",
+      "exitCode": 0,
+      "output": ".\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n",
+      "passed": true
+    }
+  },
+  "diff": "diff --git a/counter.py b/counter.py\nindex 1fee7c7..2771d1d 100644\n--- a/counter.py\n+++ b/counter.py\n@@ -1,2 +1,2 @@\n def next_value(value):\n-    return value - 1\n+    return value + 1\n",
+  "applied": true,
+  "hiddenPass": true,
+  "sourceUntouchedBeforeApply": true,
+  "restoredResult": true,
+  "sourceStatus": "M counter.py",
+  "error": "",
+  "ledgerEvents": [
+    "task.created",
+    "task.approved",
+    "task.running",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.progress",
+    "task.completed"
+  ],
+  "pass": true
+}

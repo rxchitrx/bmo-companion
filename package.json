@@ -7,14 +7,17 @@
   "scripts": {
     "dev": "npm run electron:compile && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && NODE_ENV=development electron dist-electron/main.js\"",
     "build": "vite build && npm run electron:compile",
-    "electron:compile": "tsc -p electron/tsconfig.json && cp electron/preload.cjs dist-electron/preload.cjs && mkdir -p dist-electron/native && cp native/BMOAppleBridge.swift dist-electron/native/BMOAppleBridge.swift && node --check dist-electron/preload.cjs",
+    "electron:compile": "tsc -p electron/tsconfig.json && cp electron/preload.cjs dist-electron/preload.cjs && cp electron/laya-router.py dist-electron/laya-router.py && mkdir -p dist-electron/native && cp native/BMOAppleBridge.swift dist-electron/native/BMOAppleBridge.swift && node --check dist-electron/preload.cjs",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p evaluation/tsconfig.json --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:reliability": "python3 -m unittest discover -s tests_python -v",
     "eval:canaries": "tsx evaluation/cli.ts",
     "eval:tool-schemas": "tsx evaluation/tool-schema-lab.ts",
     "eval:coding-agents": "tsx evaluation/coding-agent-compare.ts",
-    "eval:pi-coding-live": "tsx evaluation/pi-coding-adapter-live.ts"
+    "eval:pi-coding-live": "tsx evaluation/pi-coding-adapter-live.ts",
+    "eval:laya-routing": "tsx evaluation/laya-routing-lab.ts",
+    "setup:laya": "sh scripts/setup-laya.sh",
+    "eval:project-workflow-live": "tsx evaluation/project-workflow-live.ts"
   },
   "dependencies": {
     "electron": "^35.7.5",

@@ -140,7 +140,7 @@ test("realtime voice controls the computer through the Task runtime and can read
   assert.equal(policy.config.apps._default.enabled, false);
   assert.deepEqual(
     policy.dynamicTools.map((tool) => tool.name),
-    ["control_computer", "discover_services", "use_service", "get_task_state"],
+    ["control_computer", "list_projects", "select_project", "discover_services", "use_service", "get_task_state"],
   );
 });
 
@@ -383,6 +383,30 @@ test("an explicit realtime retry passes the authoritative prior Task to the new 
   });
 
   assert.equal(receivedPrior?.id, prior.id);
+});
+
+test("voice project selection changes context without starting a coding Task", async () => {
+  let starts = 0;
+  const project = { id: "project-1", name: "BMO", aliases: ["companion"], root: "/tmp/bmo", verification: "npm-test" as const };
+  const client = new CodexRealtimeVoiceClient(async () => { starts++; throw new Error("should not start"); }, async () => false, () => null, undefined,
+    async () => ({ projects: [project], activeId: project.id }), async (query) => { assert.equal(query, "companion"); return project; });
+  const invoke = (tool: string, args: object = {}) => (client as unknown as { handleServerRequest(message: Record<string, unknown>): Promise<{ result?: { success?: boolean; contentItems?: Array<{ text?: string }> } }> }).handleServerRequest({ method: "item/tool/call", params: { tool, arguments: args } });
+  const list = await invoke("list_projects");
+  assert.match(list.result?.contentItems?.[0]?.text ?? "", /BMO/);
+  const selected = await invoke("select_project", { name: "companion" });
+  assert.equal(selected.result?.success, true);
+  assert.match(selected.result?.contentItems?.[0]?.text ?? "", /No Task was started/);
+  assert.equal(starts, 0);
+});
+
+test("Laya disagreement asks for clarification before any Task starts", async () => {
+  let starts = 0;
+  const client = new CodexRealtimeVoiceClient(async () => { starts++; throw new Error("should not start"); });
+  (client as unknown as { latestRoute: Promise<unknown> }).latestRoute = Promise.resolve({ route: "conversation", confidence: 0.95, source: "laya" });
+  const reply = await (client as unknown as { handleServerRequest(message: Record<string, unknown>): Promise<{ result?: { success?: boolean; contentItems?: Array<{ text?: string }> } }> }).handleServerRequest({ method: "item/tool/call", params: { tool: "control_computer", arguments: { goal: "Explain a Git worktree", kind: "coding", retry: false } } });
+  assert.equal(reply.result?.success, false);
+  assert.match(reply.result?.contentItems?.[0]?.text ?? "", /clarification/);
+  assert.equal(starts, 0);
 });
 
 test("realtime voice can discover, read, and request approval for connected services", async () => {

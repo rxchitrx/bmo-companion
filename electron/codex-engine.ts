@@ -5,6 +5,8 @@ import type { CompanionEngine } from "./companion-engine.js";
 import type { TaskSnapshot } from "./task-runtime.js";
 import type { ConnectorToolBridge } from "./connector-tools.js";
 import type { ComputerUseHealth } from "./computer-use-health.js";
+import type { SavedProject } from "./project-registry.js";
+import type { LayaRouter } from "./laya-router.js";
 
 export function createCodexTaskEngine(computerUseHealth: ComputerUseHealth, codeWorkspacesDirectory: string): Pick<CompanionEngine, "taskExecutor" | "recoveryObserver"> {
   return {
@@ -18,11 +20,14 @@ export function createCodexInteractionEngine(options: {
   readConversationModel: () => { model: string; effort: string };
   connectorTools: ConnectorToolBridge;
   voiceConnectorTools?: ConnectorToolBridge;
-  startTask: (goal: string, kind: "general" | "coding" | "computer" | "browser", retryOf?: TaskSnapshot) => Promise<TaskSnapshot>;
+  startTask: (goal: string, kind: "general" | "coding" | "computer" | "browser", retryOf?: TaskSnapshot, project?: string) => Promise<TaskSnapshot>;
   stopTask: () => Promise<boolean>;
+  listProjects?: () => Promise<{ projects: SavedProject[]; activeId?: string }>;
+  selectProject?: (query: string) => Promise<SavedProject>;
+  router?: LayaRouter;
 }): Pick<CompanionEngine, "conversation" | "voice"> {
   return {
     conversation: new CodexConversationClient(options.readTask, options.readConversationModel, options.connectorTools),
-    voice: new CodexRealtimeVoiceClient(options.startTask, options.stopTask, options.readTask, options.voiceConnectorTools ?? options.connectorTools),
+    voice: new CodexRealtimeVoiceClient(options.startTask, options.stopTask, options.readTask, options.voiceConnectorTools ?? options.connectorTools, options.listProjects, options.selectProject, options.router),
   };
 }

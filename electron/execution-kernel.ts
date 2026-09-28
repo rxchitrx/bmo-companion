@@ -263,7 +263,10 @@ export class MinimalExecutionKernel implements TaskExecutor {
   ): Promise<ExecutionResult> {
     const runId = randomUUID();
     let sequence = 0;
-    const guardrails = new ExecutionGuardrailTracker(this.options.budgets);
+    const guardrails = new ExecutionGuardrailTracker({
+      ...this.options.budgets,
+      maxTurns: this.options.budgets?.maxTurns ?? (execution?.kind === "coding" ? 12 : undefined),
+    });
     const workerController = new AbortController();
     let guardrailOutcome: ExecutionGuardrailOutcome | undefined;
     let resolveGuardrail: ((result: ExecutionResult) => void) | undefined;
@@ -435,6 +438,7 @@ export class MinimalExecutionKernel implements TaskExecutor {
         taskKind: contextPacket.purpose.taskKind,
         workerId: capabilityManifest.worker.id,
         capabilityIds: capabilityManifest.selectedCapabilityIds,
+        project: execution?.project,
       });
       const authorityPolicy = signal.aborted
         ? { decision: "deny" as const, reason: "authority-revoked" as const }

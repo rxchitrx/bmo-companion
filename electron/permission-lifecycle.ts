@@ -12,6 +12,7 @@ export interface TaskAuthorityScope {
   workerId: AuthorityWorkerId;
   objectiveSha256: string;
   capabilityIds: string[];
+  projectSha256?: string;
 }
 
 export interface ScopedTaskAuthority {
@@ -65,6 +66,7 @@ export function createTaskAuthorityScope(input: {
   workerId?: AuthorityWorkerId;
   capabilityIds?: readonly string[];
   connectorCall?: { service: string; action: string };
+  project?: { id: string; root: string; baseCommit: string; verification: string };
 }): TaskAuthorityScope {
   const taskKind = input.taskKind ?? "general";
   return {
@@ -72,6 +74,9 @@ export function createTaskAuthorityScope(input: {
     taskKind,
     workerId: input.workerId ?? (taskKind === "connector" ? "connector-task" : taskKind === "coding" ? "code-task" : "codex-task"),
     objectiveSha256: objectiveSha256(input.goal),
+    ...(input.project ? { projectSha256: createHash("sha256").update(JSON.stringify([
+      input.project.id, input.project.root, input.project.baseCommit, input.project.verification,
+    ])).digest("hex") } : {}),
     capabilityIds: [...(
       input.capabilityIds ?? capabilityIdsForTask(taskKind, input.connectorCall)
     )].sort(),
@@ -171,6 +176,7 @@ function sameScope(actual: TaskAuthorityScope, expected: TaskAuthorityScope): bo
     actual.taskKind === expected.taskKind &&
     actual.workerId === expected.workerId &&
     actual.objectiveSha256 === expected.objectiveSha256 &&
+    actual.projectSha256 === expected.projectSha256 &&
     actual.capabilityIds.length === expected.capabilityIds.length &&
     actual.capabilityIds.every((id, index) => id === expected.capabilityIds[index])
   );

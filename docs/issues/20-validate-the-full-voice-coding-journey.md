@@ -1,6 +1,6 @@
 # Validate the full voice coding journey
 
-Status: Planned. This is a release-readiness walkthrough for the project-selection and result-review features.
+Status: Open for human macOS voice testing. Automated voice contracts and a live Pi/Python project flow pass, but they do not replace the spoken app walkthrough.
 
 ## What to build
 

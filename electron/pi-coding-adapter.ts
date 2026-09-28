@@ -14,6 +14,7 @@ import { toolArgumentsHash } from "./tool-policy.js";
 import { PI_CODE_TOOLS } from "./pi-tool-scope.js";
 import { createTaskAuthorityScope, evaluateTaskAuthority, TaskAuthorityError } from "./permission-lifecycle.js";
 import type { ExecutionResult, TaskExecutor, TaskExecutionOptions, TokenUsage } from "./task-runtime.js";
+import type { VerificationPreset } from "./project-registry.js";
 
 const exec = promisify(execFile);
 const MAX_EVENT_LINE = 2_000_000;
@@ -100,7 +101,15 @@ function usageFromPi(value: Record<string, unknown> | undefined): TokenUsage | u
   };
 }
 
-async function workspaceState(cwd: string): Promise<{ changed: string[]; digest: string }> {
+export function verificationCommand(preset: VerificationPreset, packageJson: { scripts?: Record<string, string> }) {
+  if (preset === "npm-test") return typeof packageJson.scripts?.test === "string" && packageJson.scripts.test.trim()
+    ? { command: "/usr/bin/env", args: ["npm", "test"], label: "npm test" } : undefined;
+  if (preset === "python-unittest") return { command: "/usr/bin/env", args: ["python3", "-m", "unittest", "discover"], label: "python3 -m unittest discover" };
+  if (preset === "pytest") return { command: "/usr/bin/env", args: ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider"], label: "python3 -m pytest -q" };
+  return undefined;
+}
+
+export async function workspaceState(cwd: string): Promise<{ changed: string[]; digest: string }> {
   const options = { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 };
   const [status, diff, untracked] = await Promise.all([
     exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], options),
@@ -151,6 +160,7 @@ export class PiCodingTaskExecutor implements TaskExecutor {
       taskKind: "coding",
       workerId: "code-task",
       capabilityIds: ["bmo.code_workspace"],
+      project: execution.project,
     }), new Date());
     if (authorityPolicy.decision !== "allow") throw new TaskAuthorityError(authorityPolicy);
     if (process.platform !== "darwin" || !existsSync("/usr/bin/sandbox-exec")) {
@@ -158,7 +168,8 @@ export class PiCodingTaskExecutor implements TaskExecutor {
     }
     if (!existsSync(this.piPath)) throw new Error("Pi executable is unavailable.");
     const started = Date.now();
-    const workspace = await createCodeWorkspace(this.sourceDirectory, execution.taskId ?? randomUUID(), this.codeWorkspacesDirectory, signal);
+    const sourceDirectory = execution.project?.root ?? this.sourceDirectory;
+    const workspace = await createCodeWorkspace(sourceDirectory, execution.taskId ?? randomUUID(), this.codeWorkspacesDirectory, signal, execution.project?.baseCommit);
     const canonicalWorkspace = await realpath(workspace);
     progress(`Isolated code workspace: ${canonicalWorkspace}`);
     const scratch = await realpath(await mkdtemp(join(tmpdir(), "bmo-pi-task-")));
@@ -168,9 +179,9 @@ export class PiCodingTaskExecutor implements TaskExecutor {
     const testProfile = join(scratch, "verify.sb");
     await writeFile(profile, piSandboxProfile(canonicalWorkspace, scratch, piAgentDirectory, true));
     await writeFile(testProfile, piSandboxProfile(canonicalWorkspace, scratch, piAgentDirectory, false));
-    const sourcePackage = await readFile(join(this.sourceDirectory, "package.json"), "utf8").catch(() => "");
+    const sourcePackage = await readFile(join(sourceDirectory, "package.json"), "utf8").catch(() => "");
     const packageJson = sourcePackage ? JSON.parse(sourcePackage) as { scripts?: Record<string, string> } : {};
-    const sourceModules = join(this.sourceDirectory, "node_modules");
+    const sourceModules = join(sourceDirectory, "node_modules");
     if (existsSync(sourceModules)) await symlink(sourceModules, join(canonicalWorkspace, "node_modules"));
 
     const contextPacket = execution.contextPacket ?? createTaskContextPacket({ goal, kind: "coding", retryOf: execution.retryOf, priorOutcome: execution.priorOutcome });
@@ -283,33 +294,37 @@ export class PiCodingTaskExecutor implements TaskExecutor {
       const reason = signal.aborted ? "Task authority was revoked." : timedOut ? "Pi exceeded its deadline." : protocolError ||
         (active.size ? "Pi exited with unsettled tools." : `Pi exited without a settled successful turn (code ${code}).`);
       diagnosticLog("pi.task", "execution.unverified", { reason, stderr: textMeta(stderr) });
-      return { summary: `UNVERIFIED: ${reason}`, verified: false, reconciliationRequired: true, usage: accumulated };
+      const partial = await workspaceState(canonicalWorkspace).catch(() => undefined);
+      return { summary: `UNVERIFIED: ${reason}`, verified: false, reconciliationRequired: true, usage: accumulated,
+        codeReview: partial?.changed.length ? partial : undefined };
     }
     progress("Pi finished. BMO is checking the worktree and running the original tests.");
     const beforeVerification = await workspaceState(canonicalWorkspace);
     const changed = beforeVerification.changed;
-    const protectedChange = changed.some((file) => /(^|\/)(test|tests|__tests__)(\/|$)|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(file));
+    const protectedChange = changed.some((file) => /(^|\/)(test|tests|__tests__)(\/|$)|(^|\/)test_[^/]+\.py$|(^|\/)[^/]+_test\.py$|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|pytest\.ini|setup\.cfg|requirements[^/]*\.txt)$/.test(file));
     const packageUnchanged = sourcePackage === await readFile(join(canonicalWorkspace, "package.json"), "utf8").catch(() => "");
-    const hasTest = typeof packageJson.scripts?.test === "string" && packageJson.scripts.test.trim().length > 0;
-    if (!changed.length || protectedChange || !packageUnchanged || !hasTest || failedTool || !finalText.trimStart().startsWith("VERIFIED OUTCOME:")) {
-      const reason = !changed.length ? "No code change was produced." : protectedChange || !packageUnchanged ? "Tests or test configuration changed and require review." : !hasTest ? "No original test script exists." : failedTool ? "A coding tool failed." : `Pi did not claim a verified outcome. ${finalText.slice(0, 500)}`;
-      return { summary: `UNVERIFIED: ${reason}`, verified: false, reconciliationRequired: changed.length > 0, usage: accumulated };
+    const verifier = verificationCommand(execution.project?.verification ?? "npm-test", packageJson);
+    if (!changed.length || protectedChange || !packageUnchanged || !verifier || failedTool || !finalText.trimStart().startsWith("VERIFIED OUTCOME:")) {
+      const reason = !changed.length ? "No code change was produced." : protectedChange || !packageUnchanged ? "Tests or test configuration changed and require review." : !verifier ? "No approved verification command is available for this project." : failedTool ? "A coding tool failed." : `Pi did not claim a verified outcome. ${finalText.slice(0, 500)}`;
+      return { summary: `UNVERIFIED: ${reason}`, verified: false, reconciliationRequired: changed.length > 0, usage: accumulated,
+        codeReview: changed.length ? beforeVerification : undefined };
     }
-    const testEnv = { ...codeWorkerEnvironment(process.env), TMPDIR: scratch, npm_config_cache: join(scratch, "npm-cache"), CI: "1" };
+    const testEnv = { ...codeWorkerEnvironment(process.env), TMPDIR: scratch, npm_config_cache: join(scratch, "npm-cache"), PYTHONDONTWRITEBYTECODE: "1", CI: "1" };
     const verifiedAt = Date.now();
-    const test = await runSandboxed("/usr/bin/env", ["npm", "test"], canonicalWorkspace, testProfile, testEnv, signal, this.deadlines.testMs ?? 120_000);
+    const test = await runSandboxed(verifier.command, verifier.args, canonicalWorkspace, testProfile, testEnv, signal, this.deadlines.testMs ?? 120_000);
     const afterVerification = await workspaceState(canonicalWorkspace).catch(() => undefined);
     const worktreeStable = afterVerification?.digest === beforeVerification.digest;
     diagnosticLog("pi.task", "verification.completed", { taskId: execution.taskId, testExitCode: test.code, changedCount: changed.length, worktreeStable, testOutput: textMeta(test.output) });
-    const passed = test.code === 0 && !test.stopped && !signal.aborted && worktreeStable;
+    const nonemptyPythonSuite = execution.project?.verification !== "python-unittest" || Number(test.output.match(/Ran (\d+) tests?/)?.[1] ?? 0) > 0;
+    const passed = test.code === 0 && !test.stopped && !signal.aborted && worktreeStable && nonemptyPythonSuite;
     return {
       summary: passed ? finalText.trim() : !worktreeStable
         ? "UNVERIFIED: Project tests changed the worktree during verification; review the result."
-        : `UNVERIFIED: Original project tests did not pass in the sandbox. ${test.output.slice(-500)}`,
+        : `UNVERIFIED: The approved project check failed, found no tests, or changed the worktree. ${test.output.slice(-500)}`,
       verified: passed,
       reconciliationRequired: !passed,
       usage: accumulated,
-      verificationEvidence: passed ? [{ id: "pi.original-tests", kind: "tool-result", source: "bmo-pi-verifier", polarity: "supports", strength: "direct", statement: `The original npm test script passed in the sandbox after ${changed.length} changed path(s).` }] : undefined,
+      verificationEvidence: passed ? [{ id: "pi.original-tests", kind: "tool-result", source: "bmo-pi-verifier", polarity: "supports", strength: "direct", statement: `The approved ${verifier.label} check passed in the sandbox after ${changed.length} changed path(s).` }] : undefined,
       timing: {
         startupMs: 0,
         executionMs: verifiedAt - started,
@@ -318,6 +333,8 @@ export class PiCodingTaskExecutor implements TaskExecutor {
         totalMs: Date.now() - started,
       },
       artifacts: changed.map((file) => ({ label: "Changed code", sourceName: file })),
+      codeReview: { digest: beforeVerification.digest, changed,
+        verification: { label: verifier.label, exitCode: test.code, output: test.output.slice(-2000), passed } },
     };
     } finally {
       await rm(scratch, { recursive: true, force: true }).catch(() => undefined);

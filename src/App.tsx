@@ -8,6 +8,10 @@ import type {
   ModelCatalogEntry,
   ModelRole,
   ModelSettings,
+  ProjectList,
+  CodeReview,
+  CodeReviewEntry,
+  VerificationPreset,
   RealtimeVoiceUpdate,
   RecallAnswer,
   TaskSnapshot,
@@ -130,6 +134,7 @@ function accountUsageTitle(usage: AccountUsage) {
 
 export function App() {
   const [goal, setGoal] = useState("");
+  const [textFallbackOpen, setTextFallbackOpen] = useState(false);
   const [task, setTask] = useState<TaskSnapshot | null>(null);
   const [conversation, setConversation] = useState<ConversationUpdate | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<RealtimeUiStatus>("idle");
@@ -154,6 +159,15 @@ export function App() {
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
   const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [connectorsLoading, setConnectorsLoading] = useState(false);
+  const [projects, setProjects] = useState<ProjectList>({ projects: [] });
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectVerification, setProjectVerification] = useState<VerificationPreset>("npm-test");
+  const [projectError, setProjectError] = useState("");
+  const [codeReview, setCodeReview] = useState<CodeReview | null>(null);
+  const [codeReviews, setCodeReviews] = useState<CodeReviewEntry[]>([]);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [codeReviewError, setCodeReviewError] = useState("");
   const [ambientNotice, setAmbientNotice] = useState("");
   const [taskKind, setTaskKind] = useState<TaskKind>("general");
   const sessionRef = useRef<CodexRealtimeVoiceSession | null>(null);
@@ -211,6 +225,7 @@ export function App() {
         summary: nextTask.summary,
       });
       setTask(nextTask);
+      if (nextTask.kind === "coding" && nextTask.codeReview && ["completed", "failed", "needs_decision"].includes(nextTask.status)) setReviewsOpen(true);
       const statusChanged = lastTaskStatusRef.current !== nextTask.status;
       lastTaskStatusRef.current = nextTask.status;
       if (!sessionRef.current?.active && statusChanged) {
@@ -221,7 +236,10 @@ export function App() {
       }
     });
     void window.companion.getCurrentTask().then((currentTask) => {
-      if (currentTask) setTask(currentTask);
+      if (currentTask) {
+        setTask(currentTask);
+        if (currentTask.kind === "coding" && currentTask.codeReview && ["completed", "failed", "needs_decision"].includes(currentTask.status)) setReviewsOpen(true);
+      }
     }).catch((error) => {
       clientDiagnostic("ui.task", "initial_snapshot_failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -340,6 +358,61 @@ export function App() {
       notify: signal.notify,
     });
   }), []);
+
+  useEffect(() => {
+    void window.companion.listProjects().then(setProjects).catch((error) => setProjectError(String(error)));
+    return window.companion.onProjectsUpdate(setProjects);
+  }, []);
+  useEffect(() => {
+    const refresh = () => void window.companion.listCodeReviews().then(setCodeReviews).catch((error) => setCodeReviewError(String(error)));
+    refresh();
+    return window.companion.onCodeReviewsUpdate(refresh);
+  }, []);
+
+  async function addProject() {
+    setProjectError("");
+    try {
+      const added = await window.companion.addProject(projectName.trim(), projectVerification);
+      if (added) { setProjects(await window.companion.listProjects()); setProjectName(""); }
+    } catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  async function selectProject(id: string) {
+    setProjectError("");
+    try { await window.companion.selectProject(id); setProjects(await window.companion.listProjects()); }
+    catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  async function renameProject(id: string, currentName: string, currentAliases: string[]) {
+    const name = window.prompt("Project name", currentName);
+    if (name === null) return;
+    const aliases = window.prompt("Spoken aliases, separated by commas", currentAliases.join(", "));
+    if (aliases === null) return;
+    try { await window.companion.renameProject(id, name, aliases.split(",").map((alias) => alias.trim()).filter(Boolean)); setProjects(await window.companion.listProjects()); }
+    catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  async function removeProject(id: string) {
+    if (!window.confirm("Remove this saved project from BMO? Its files will stay on disk.")) return;
+    try { await window.companion.removeProject(id); setProjects(await window.companion.listProjects()); }
+    catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  async function loadCodeReview(id: string) {
+    setCodeReviewError("");
+    try { setCodeReview(await window.companion.getCodeReview(id)); }
+    catch (error) { setCodeReviewError(error instanceof Error ? error.message : String(error)); }
+  }
+  async function applyCodeReview(id: string) {
+    setCodeReviewError("");
+    try { const result = await window.companion.applyCodeReview(id); if (!("cancelled" in result)) await loadCodeReview(id); }
+    catch (error) { setCodeReviewError(error instanceof Error ? error.message : String(error)); }
+  }
+  async function discardCodeReview(id: string) {
+    setCodeReviewError("");
+    try { const result = await window.companion.discardCodeReview(id); if (!("cancelled" in result)) setCodeReview((current) => current ? { ...current, state: "discarded" } : current); }
+    catch (error) { setCodeReviewError(error instanceof Error ? error.message : String(error)); }
+  }
 
   useEffect(() => {
     void Promise.all([
@@ -517,7 +590,7 @@ export function App() {
     clientDiagnostic("ui.task", "create.requested", { goal: trimmed });
     setRecall(null);
     try {
-      setTask(await window.companion.startTask(trimmed, taskKind));
+      setTask(await window.companion.startTask(trimmed, taskKind, taskKind === "coding" ? projects.activeId : undefined));
       setGoal("");
     } catch (error) {
       clientDiagnostic("ui.task", "create.rejected", {
@@ -703,6 +776,10 @@ export function App() {
           />
         </div>
         <div className="voice-controls">
+          <button type="button" className="button-models" onClick={() => setProjectsOpen(true)} aria-label="Choose a coding project">
+            {projects.projects.find((project) => project.id === projects.activeId)?.name ?? "Projects"}
+          </button>
+          <button type="button" className="button-models" onClick={() => setReviewsOpen(true)} aria-label="Review coding results">Code results{codeReviews.length ? ` (${codeReviews.length})` : ""}</button>
           <button
             type="button"
             className="button-models"
@@ -789,6 +866,28 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {projectsOpen && (
+        <section className="model-panel" aria-label="Saved coding projects">
+          <div className="model-panel__header"><div><small>PROJECTS</small><strong>Choose where BMO codes</strong></div><button type="button" className="button-text" onClick={() => setProjectsOpen(false)}>Close</button></div>
+          {projects.projects.map((project) => (
+            <div className="model-row" key={project.id}>
+              <div><strong>{project.name}{project.id === projects.activeId ? " · active" : ""}</strong><small>{project.root} · {project.verification}</small></div>
+              <button type="button" className="button-text" onClick={() => void selectProject(project.id)}>Select</button>
+              <button type="button" className="button-text" onClick={() => void renameProject(project.id, project.name, project.aliases)}>Rename</button>
+              <button type="button" className="button-text" onClick={() => void removeProject(project.id)}>Remove</button>
+            </div>
+          ))}
+          <div className="model-panel__footer">
+            <input aria-label="New project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Spoken project name" />
+            <select aria-label="Project verification" value={projectVerification} onChange={(event) => setProjectVerification(event.target.value as VerificationPreset)}>
+              <option value="npm-test">npm test</option><option value="python-unittest">Python unittest</option><option value="pytest">Python pytest</option>
+            </select>
+            <button type="button" className="button-primary" onClick={() => void addProject()} disabled={!projectName.trim()}>Choose folder</button>
+          </div>
+          {projectError && <p className="model-panel__error">{projectError}</p>}
+        </section>
+      )}
 
       {modelsOpen && (
         <section className="model-panel" aria-label="Model routing settings">
@@ -896,12 +995,38 @@ export function App() {
         </div>
       </section>
 
+      {reviewsOpen && (
+        <section className="model-panel code-review-panel" aria-label="Coding result review">
+          <div className="model-panel__header"><div><small>CODE RESULTS</small><strong>Review before changing a project</strong></div><button type="button" className="button-text" onClick={() => setReviewsOpen(false)}>Close</button></div>
+          {codeReviews.map((entry) => <button key={entry.id} type="button" className="button-text" onClick={() => void loadCodeReview(entry.id)}>
+            {entry.projectName} · {entry.state ?? (entry.status === "completed" ? "verified" : "unverified")} · {entry.summary ?? entry.id}
+          </button>)}
+          {task?.kind === "coding" && task.codeReview && !codeReviews.some((entry) => entry.id === task.id) &&
+            <button type="button" className="button-text" onClick={() => void loadCodeReview(task.id)}>Show current result</button>}
+          {!codeReviews.length && !task?.codeReview && <p>No coding results yet.</p>}
+          {codeReview && <>
+            <p>{codeReview.changed.join(", ")} · {codeReview.state ?? "awaiting your decision"}</p>
+            {codeReview.verification && <div>
+              <strong>{codeReview.verification.label}: {codeReview.verification.passed ? "passed" : "failed"}</strong>
+              <pre className="code-review-diff">{codeReview.verification.output}</pre>
+            </div>}
+            <pre className="code-review-diff">{codeReview.diff}</pre>
+            {!codeReview.state && <div className="model-panel__footer">
+              <button type="button" className="button-primary" disabled={!codeReview.verified} onClick={() => void applyCodeReview(codeReview.taskId)}>Apply to project</button>
+              <button type="button" className="button-text" onClick={() => void discardCodeReview(codeReview.taskId)}>Discard isolated result</button>
+            </div>}
+          </>}
+          {codeReviewError && <p className="model-panel__error">{codeReviewError}</p>}
+        </section>
+      )}
+
       {task && ["waiting_approval", "needs_decision", "suspended"].includes(task.status) ? (
         <section className="approval-panel">
           <div>
             <small>ONE TASK · UP TO TWO HOURS</small>
-            <strong>{task.status === "waiting_approval" ? task.kind === "connector" ? "Allow this connected-service action?" : "Let Codex control this Mac for this task?" : task.summary}</strong>
+            <strong>{task.status === "waiting_approval" ? task.kind === "connector" ? "Allow this connected-service action?" : task.kind === "coding" ? "Let Pi work in an isolated copy of this project?" : "Let Codex control this Mac for this task?" : task.summary}</strong>
             <p>{task.goal}</p>
+            {task.project && <p>Project: {task.project.name} · {task.project.root} · starting commit {task.project.baseCommit.slice(0, 12)} · check: {task.project.verification}</p>}
             {task.status === "waiting_approval" && task.connectorCall && (
               <pre className="connector-approval-preview">
                 {JSON.stringify(task.connectorCall.arguments, null, 2)}
@@ -919,6 +1044,15 @@ export function App() {
         </section>
       ) : (
         <section className="command-dock">
+          {!textFallbackOpen && <div className="voice-first-dock">
+            <span>Talk to BMO about your project or task.</span>
+            <button type="button" className="button-primary" onClick={() => void toggleVoice()} disabled={voiceStatus === "connecting"}>
+              {voiceStatus === "idle" || voiceStatus === "degraded" ? "Start voice" : "End voice"}
+            </button>
+            <button type="button" className="button-text" onClick={() => setTextFallbackOpen(true)}>Type instead</button>
+            {task?.status === "running" && <button type="button" className="button-stop button-compact" onClick={() => window.companion.cancelTask(task.id)}>Stop task</button>}
+          </div>}
+          {textFallbackOpen && <>
           <form onSubmit={submit}>
             <label className="sr-only" htmlFor="goal">Ask BMO anything</label>
             <input
@@ -972,6 +1106,8 @@ export function App() {
               )}
             </div>
           </form>
+          <button type="button" className="button-text" onClick={() => setTextFallbackOpen(false)}>Back to voice</button>
+          </>}
         </section>
       )}
     </main>

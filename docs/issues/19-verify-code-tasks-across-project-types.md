@@ -1,6 +1,6 @@
 # Verify code tasks across project types
 
-Status: Planned.
+Status: Implemented with approved Node, Python unittest, and pytest presets. Automated tests and a live isolated Python task pass; additional live project types and cancellation walkthroughs remain open.
 
 ## What to build
 

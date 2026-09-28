@@ -32,6 +32,7 @@ export async function createCodeWorkspace(
   taskId: string,
   workspacesDirectory = join(tmpdir(), "bmo-code-workspaces"),
   signal?: AbortSignal,
+  expectedHead?: string,
 ): Promise<string> {
   let root: string;
   try {
@@ -42,6 +43,9 @@ export async function createCodeWorkspace(
   }
   if (await realpath(root) !== await realpath(sourceDirectory)) {
     throw new CodeWorkspaceDecision("Coding is paused because BMO's selected project folder is not the Git root. Choose the project root first.");
+  }
+  if (expectedHead && await git(root, ["rev-parse", "HEAD"], signal) !== expectedHead) {
+    throw new CodeWorkspaceDecision("The project changed since approval. Review the new commit before coding starts.");
   }
   let dirty: string;
   try {

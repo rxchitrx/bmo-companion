@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, powerMonitor, screen, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, screen, session } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createCodexInteractionEngine } from "./codex-engine.js";
@@ -25,6 +25,9 @@ import { connectorCallGoal, createConnectors } from "./connectors.js";
 import { TASK_GOAL_MAX_CHARS } from "./context-packet.js";
 import { MinimalExecutionKernel } from "./execution-kernel.js";
 import { JsonToolCallJournal, ToolDispatcher } from "./tool-dispatch.js";
+import { ProjectRegistry, type VerificationPreset } from "./project-registry.js";
+import { CodeReviewService } from "./code-review.js";
+import { LayaRouter } from "./laya-router.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -34,6 +37,9 @@ let modelSettings: ModelSettingsStore;
 let conversation: CompanionConversationEngine;
 let realtimeVoice: CompanionVoiceEngine;
 let connectorGateway: ConnectorGateway;
+let projects: ProjectRegistry;
+let codeReview: CodeReviewService;
+const layaRouter = new LayaRouter();
 let modelCatalogPromise: ReturnType<typeof listAvailableModels> | null = null;
 const computerUseHealth = new ComputerUseHealth();
 
@@ -117,6 +123,8 @@ function createStage() {
 }
 
 app.whenReady().then(async () => {
+  projects = new ProjectRegistry(join(app.getPath("userData"), "projects.json"));
+  codeReview = new CodeReviewService(join(app.getPath("userData"), "code-workspaces"), join(app.getPath("userData"), "code-review-journal.json"));
   diagnosticLog("main", "application.ready", {
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
@@ -184,6 +192,9 @@ app.whenReady().then(async () => {
     (task) => {
       mainWindow?.webContents.send("task:update", task);
       void realtimeVoice?.syncTask(task);
+      if (task.codeReview) void codeReview.remember(task).then(() => {
+        mainWindow?.webContents.send("code-review:update");
+      }).catch((error) => diagnosticLog("main", "code_review.save_failed", { error: String(error) }));
     },
     undefined,
     new JsonTaskStore(join(app.getPath("userData"), "active-task.json")),
@@ -213,18 +224,28 @@ app.whenReady().then(async () => {
     readConversationModel: () => modelSettings.selection("conversation"),
     connectorTools,
     voiceConnectorTools,
-    startTask: (goal, kind, retryOf) => {
+    startTask: async (goal, kind, retryOf, projectQuery) => {
       const selection = modelSettings.selection(kind);
+      const project = kind === "coding" ? await projects.snapshot(projectQuery) : undefined;
       return retryOf
-        ? runtime.createRetry(retryOf.id, goal, { kind, ...selection })
-        : runtime.create(goal, { kind, ...selection });
+        ? runtime.createRetry(retryOf.id, goal, { kind, ...selection, project })
+        : runtime.create(goal, { kind, ...selection, project });
     },
     stopTask: () => runtime.cancelActive(),
+    listProjects: () => projects.list(),
+    selectProject: async (query) => {
+      if (["running", "waiting_approval", "suspended", "needs_decision"].includes(runtime.currentTask()?.status ?? "")) throw new Error("Finish or cancel the active Task before switching projects.");
+      const project = await projects.select(query);
+      mainWindow?.webContents.send("projects:update", await projects.list());
+      return project;
+    },
+    router: layaRouter,
   });
   conversation = interactions.conversation;
   realtimeVoice = interactions.voice;
-  void runtime.restore().then((task) => {
+  void runtime.restore().then(async (task) => {
     computerUseHealth.observeFailure(task?.summary);
+    if (task?.codeReview) await codeReview.remember(task);
   });
   const reminderClock = setInterval(() => void runtime.sendDueReminders(), 30_000);
   reminderClock.unref();
@@ -295,7 +316,7 @@ ipcMain.handle("voice:realtime:stop", async () => {
   await realtimeVoice.stop("renderer requested stop");
 });
 
-ipcMain.handle("task:start", (_event, payload: { goal?: unknown; kind?: unknown }) => {
+ipcMain.handle("task:start", async (_event, payload: { goal?: unknown; kind?: unknown; project?: unknown }) => {
   const goal = String(payload?.goal ?? "").trim();
   const rawKind = String(payload?.kind ?? "general");
   const kind = (["general", "coding", "computer", "browser"].includes(rawKind)
@@ -306,8 +327,59 @@ ipcMain.handle("task:start", (_event, payload: { goal?: unknown; kind?: unknown 
     throw new Error(`Task goal exceeds the ${TASK_GOAL_MAX_CHARS}-character Context Packet limit.`);
   }
   const selection = modelSettings.selection(kind);
+  const project = kind === "coding" ? await projects.snapshot(typeof payload?.project === "string" ? payload.project : undefined) : undefined;
   diagnosticLog("main", "ipc.task.start", { goal: textMeta(goal) });
-  return runtime.create(goal, { kind, ...selection });
+  return runtime.create(goal, { kind, ...selection, project });
+});
+ipcMain.handle("projects:list", () => projects.list());
+ipcMain.handle("projects:add", async (_event, name: string, verification: VerificationPreset) => {
+  const choice = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "Choose a project folder" });
+  if (choice.canceled || !choice.filePaths[0]) return null;
+  const project = await projects.add(choice.filePaths[0], name, verification);
+  mainWindow?.webContents.send("projects:update", await projects.list());
+  return project;
+});
+ipcMain.handle("projects:select", async (_event, query: string) => {
+  if (["running", "waiting_approval", "suspended", "needs_decision"].includes(runtime.currentTask()?.status ?? "")) throw new Error("Finish or cancel the active Task before switching projects.");
+  const project = await projects.select(query);
+  mainWindow?.webContents.send("projects:update", await projects.list());
+  return project;
+});
+ipcMain.handle("projects:rename", async (_event, id: string, name: string, aliases: string[]) => {
+  const project = await projects.rename(id, name, aliases);
+  mainWindow?.webContents.send("projects:update", await projects.list());
+  return project;
+});
+ipcMain.handle("projects:remove", async (_event, id: string) => {
+  if (runtime.currentTask()?.project?.id === id && ["running", "waiting_approval", "suspended", "needs_decision"].includes(runtime.currentTask()?.status ?? "")) throw new Error("Finish or cancel the active Task before removing its project.");
+  await projects.remove(id);
+  mainWindow?.webContents.send("projects:update", await projects.list());
+});
+ipcMain.handle("code-review:get", async (_event, taskId: string) => {
+  const task = runtime.currentTask()?.id === taskId ? runtime.currentTask() : await codeReview.task(taskId);
+  if (!task) throw new Error("No saved code result has this Task ID.");
+  return codeReview.review(task);
+});
+ipcMain.handle("code-review:list", () => codeReview.list());
+ipcMain.handle("code-review:apply", async (_event, taskId: string) => {
+  const task = runtime.currentTask()?.id === taskId ? runtime.currentTask() : await codeReview.task(taskId);
+  if (!task) throw new Error("No saved code result has this Task ID.");
+  const choice = await dialog.showMessageBox({ type: "question", buttons: ["Cancel", "Apply changes"], defaultId: 0, cancelId: 0,
+    message: `Apply this verified result to ${task.project?.name ?? "the project"}?`, detail: task.project?.root ?? "" });
+  if (choice.response !== 1) return { cancelled: true };
+  const result = await codeReview.apply(task);
+  mainWindow?.webContents.send("code-review:update");
+  return result;
+});
+ipcMain.handle("code-review:discard", async (_event, taskId: string) => {
+  const task = runtime.currentTask()?.id === taskId ? runtime.currentTask() : await codeReview.task(taskId);
+  if (!task) throw new Error("No saved code result has this Task ID.");
+  const choice = await dialog.showMessageBox({ type: "warning", buttons: ["Keep result", "Discard isolated result"], defaultId: 0, cancelId: 0,
+    message: "Discard this isolated code result?", detail: "BMO will remove only this Task's worktree. The original project folder stays unchanged." });
+  if (choice.response !== 1) return { cancelled: true };
+  const result = await codeReview.discard(task);
+  mainWindow?.webContents.send("code-review:update");
+  return result;
 });
 ipcMain.handle("task:approve", (_event, id: string) => {
   diagnosticLog("main", "ipc.task.approve", { taskId: id });
@@ -358,6 +430,7 @@ ipcMain.on("diagnostic:client", (_event, payload: unknown) => {
 });
 
 app.on("before-quit", () => {
+  layaRouter.close();
   diagnosticLog("main", "application.before_quit");
   void realtimeVoice.stop("application shutdown");
   conversation.stop();

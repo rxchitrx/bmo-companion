@@ -1,6 +1,6 @@
 # Personal BMO Companion
 
-A design and prototype repository for a private, full-screen macOS AI Companion: an animated BMO Stage on a selected display, realtime conversation, Codex-backed general computer/browser/coding Tasks, durable local memory, controlled automation, and connected personal services.
+A private, full-screen macOS AI Companion: an animated BMO Stage, realtime conversation, Codex-backed general and computer Tasks, isolated Pi coding Tasks, durable local memory, controlled automation, and connected personal services.
 
 ## Current status
 
@@ -31,7 +31,7 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `electron/execution-kernel.ts` — one-worker Task orchestration and the typed VerifiedOutcome boundary.
 - `electron/execution-guardrails.ts` — bounded cost/runaway counters and deterministic stop outcomes.
 - `docs/EXECUTION-KERNEL.md` — execution flow, lifecycle event contract, and integration requirements.
-- `docs/issues/17-select-a-project-by-voice.md` through `20-validate-the-full-voice-coding-journey.md` — planned project selection, code review, broader verification, and live voice validation.
+- `docs/issues/17-select-a-project-by-voice.md` through `21-voice-first-local-routing.md` — project selection, code review, verification, live voice validation, and the guarded local router.
 
 ## Important boundaries
 
@@ -54,7 +54,9 @@ npm install
 npm run dev
 ```
 
-BMO selects a non-primary display when available. Enter a general goal, review the one-Task approval, and choose **Allow this task**. Set `CODEX_CLI_PATH` only when Codex is installed somewhere other than the normal ChatGPT application bundle.
+BMO selects a non-primary display when available. Start voice or choose **Type instead**. For coding, use **Projects** to register a Git project with the native folder picker, give it a spoken name, and choose an approved Node or Python test preset. Select that project before requesting code work. BMO shows the project and commit at approval, runs Pi in a separate worktree, and shows a diff and test output before you explicitly apply or discard the result. Set `CODEX_CLI_PATH` only when Codex is installed somewhere other than the normal ChatGPT application bundle.
+
+Local Laya routing is optional. Run `npm run setup:laya` to install its pinned local MLX checkpoint, then `npm run eval:laya-routing` to inspect its routing results. Laya currently flags a strong route disagreement for clarification; it cannot authorize tools or replace Codex voice. A live microphone walkthrough remains pending.
 
 Verification:
 

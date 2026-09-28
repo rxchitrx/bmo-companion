@@ -5,6 +5,7 @@ import { diagnosticLog, textMeta } from "./diagnostics.js";
 import { CodeWorkspaceDecision } from "./code-workspace.js";
 import { ReconciliationRequiredError } from "./tool-dispatch.js";
 import type { ConnectorCall } from "./connector-types.js";
+import type { CodeProjectRef } from "./project-registry.js";
 import type { TaskContextPacket } from "./context-packet.js";
 import type { ExecutionCapabilityManifest } from "./execution-kernel.js";
 import {
@@ -100,6 +101,8 @@ export interface TaskSnapshot {
   retryOf?: string;
   priorOutcome?: string;
   connectorCall?: ConnectorCall;
+  project?: CodeProjectRef;
+  codeReview?: { digest: string; changed: string[]; verification?: { label: string; exitCode: number | null; output: string; passed: boolean } };
   authority?: ScopedTaskAuthority;
 }
 
@@ -121,6 +124,7 @@ export interface ExecutionResult {
   accountUsage?: AccountUsage;
   timing?: TaskTiming;
   artifacts?: Array<{ label: string; sourceName: string; sourceUrl?: string }>;
+  codeReview?: { digest: string; changed: string[]; verification?: { label: string; exitCode: number | null; output: string; passed: boolean } };
   guardrailOutcome?: ExecutionGuardrailOutcome;
 }
 
@@ -135,6 +139,7 @@ export interface TaskExecutionOptions {
   capabilityManifest?: ExecutionCapabilityManifest;
   taskId?: string;
   authority?: ScopedTaskAuthority;
+  project?: CodeProjectRef;
   budgetObserver?: (event: ExecutionBudgetEvent) => void;
 }
 
@@ -291,6 +296,7 @@ export class TaskRuntime {
       retryOf?: string;
       priorOutcome?: string;
       connectorCall?: ConnectorCall;
+      project?: CodeProjectRef;
     } = {},
   ): Promise<TaskSnapshot> {
     diagnosticLog("task.runtime", "create.requested", {
@@ -335,12 +341,14 @@ export class TaskRuntime {
       retryOf: options.retryOf,
       priorOutcome: options.priorOutcome,
       connectorCall: options.connectorCall,
+      project: options.project,
       authority: askForTaskAuthority(
         createTaskAuthorityScope({
           taskId,
           goal,
           taskKind: options.kind,
           connectorCall: options.connectorCall,
+          project: options.project,
         }),
         this.now(),
       ),
@@ -371,6 +379,7 @@ export class TaskRuntime {
       kind?: "general" | "coding" | "computer" | "browser";
       model?: string;
       effort?: string;
+      project?: CodeProjectRef;
     } = {},
   ): Promise<TaskSnapshot> {
     const previous = this.requireTask(previousId);
@@ -718,6 +727,7 @@ export class TaskRuntime {
               model: stored.task.model,
               effort: stored.task.effort,
               kind: stored.task.kind,
+              project: stored.task.project,
               ...(stored.task.connectorCall
                 ? { connectorCall: stored.task.connectorCall }
                 : {}),
@@ -740,6 +750,7 @@ export class TaskRuntime {
       if (result.usage) stored.task.usage = result.usage;
       if (result.accountUsage) stored.task.accountUsage = result.accountUsage;
       if (result.timing) stored.task.timing = result.timing;
+      if (result.codeReview) stored.task.codeReview = result.codeReview;
       if (result.verified) {
         stored.task.authority = denyTaskAuthority(
           stored.task.authority!,
@@ -954,6 +965,7 @@ export class TaskRuntime {
       goal: task.goal,
       taskKind: task.kind,
       connectorCall: task.connectorCall,
+      project: task.project,
     });
   }
   private ensureAuthority(stored: StoredTask) {

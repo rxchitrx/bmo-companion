@@ -5,6 +5,7 @@ export function taskSnapshotToRealtimeContext(task: TaskSnapshot) {
     "[AUTHORITATIVE TASK STATE]",
     `Task ID: ${task.id}`,
     `Goal: ${task.goal}`,
+    `Project: ${task.project ? `${task.project.name} (${task.project.root}, commit ${task.project.baseCommit.slice(0, 12)})` : "none"}`,
     `Status: ${task.status}`,
     `Approval: ${task.status === "waiting_approval" ? "pending" : task.approvalExpiresAt ? "granted" : "not active"}`,
     `Latest progress: ${task.progress.at(-1) ?? "none"}`,

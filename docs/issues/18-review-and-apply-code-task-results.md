@@ -1,6 +1,6 @@
 # Review and apply code task results
 
-Status: Planned. Follows voice-controlled project selection.
+Status: Implemented in code, with automated apply, discard, changed checkout, and restart tests. Live app review and crash-during-apply recovery still need validation.
 
 ## What to build
 

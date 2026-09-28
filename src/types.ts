@@ -60,6 +60,8 @@ export interface TaskSnapshot {
   finishedAt?: string;
   retryOf?: string;
   priorOutcome?: string;
+  project?: CodeProjectRef;
+  codeReview?: { digest: string; changed: string[]; verification?: { label: string; exitCode: number | null; output: string; passed: boolean } };
   connectorCall?: {
     service: string;
     action: string;
@@ -70,6 +72,12 @@ export interface TaskSnapshot {
 }
 
 export type TaskKind = "general" | "coding" | "computer" | "browser" | "connector";
+export type VerificationPreset = "npm-test" | "python-unittest" | "pytest";
+export interface SavedProject { id: string; name: string; aliases: string[]; root: string; verification: VerificationPreset; }
+export interface CodeProjectRef extends SavedProject { baseCommit: string; }
+export interface ProjectList { projects: SavedProject[]; activeId?: string; }
+export interface CodeReview { taskId: string; projectName: string; root: string; workspace: string; changed: string[]; diff: string; verified: boolean; verification?: { label: string; exitCode: number | null; output: string; passed: boolean }; state?: "applying" | "applied" | "discarded"; }
+export interface CodeReviewEntry { id: string; projectName: string; summary?: string; status: TaskStatus; state?: "applying" | "applied" | "discarded"; }
 export interface ConnectorActionSummary {
   name: string;
   label: string;
@@ -124,7 +132,18 @@ export interface CompanionApi {
   stopRealtimeVoice(): Promise<void>;
   getCurrentTask(): Promise<TaskSnapshot | null>;
   listConnectors(): Promise<ConnectorStatus[]>;
-  startTask(goal: string, kind?: TaskKind): Promise<TaskSnapshot>;
+  startTask(goal: string, kind?: TaskKind, project?: string): Promise<TaskSnapshot>;
+  listProjects(): Promise<ProjectList>;
+  addProject(name: string, verification: VerificationPreset): Promise<SavedProject | null>;
+  selectProject(query: string): Promise<SavedProject>;
+  renameProject(id: string, name: string, aliases: string[]): Promise<SavedProject>;
+  removeProject(id: string): Promise<void>;
+  onProjectsUpdate(listener: (state: ProjectList) => void): () => void;
+  getCodeReview(taskId: string): Promise<CodeReview>;
+  listCodeReviews(): Promise<CodeReviewEntry[]>;
+  onCodeReviewsUpdate(listener: () => void): () => void;
+  applyCodeReview(taskId: string): Promise<{ applied: string[] } | { cancelled: true }>;
+  discardCodeReview(taskId: string): Promise<{ discarded: true } | { cancelled: true }>;
   approveTask(taskId: string): Promise<void>;
   extendTaskApproval(taskId: string): Promise<void>;
   recoverTask(taskId: string): Promise<void>;

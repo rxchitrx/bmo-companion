@@ -258,6 +258,8 @@ button { cursor: pointer; }
 
 .model-panel__footer small { max-width: 28rem; opacity: 0.66; }
 .model-panel__error { color: oklch(42% 0.17 28); font-weight: 750; }
+.code-review-panel { max-height: 52vh; overflow: auto; }
+.code-review-diff { max-height: 32vh; overflow: auto; white-space: pre; font-size: 0.77rem; line-height: 1.45; padding: 0.9rem; border-radius: 0.75rem; background: rgba(0, 0, 0, 0.08); }
 
 .connection-panel {
   display: grid;
@@ -555,6 +557,8 @@ button { cursor: pointer; }
     opacity 180ms var(--ease-out),
     transform 180ms var(--ease-out);
 }
+.voice-first-dock { display: flex; align-items: center; justify-content: center; gap: 0.8rem; flex-wrap: wrap; padding: 0.7rem; }
+.voice-first-dock span { font-weight: 650; }
 .command-dock:hover,
 .command-dock:focus-within {
   opacity: 1;

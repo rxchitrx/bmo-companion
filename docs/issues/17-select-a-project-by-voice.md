@@ -1,6 +1,6 @@
 # Select a project by voice
 
-Status: Planned. This is the next coding workflow milestone; implementation has not started.
+Status: Implemented in code; live microphone and macOS walkthrough remains open. The folder picker, saved aliases, approval binding, isolated worktree, and automated tests are in place.
 
 ## What to build
 
@@ -23,4 +23,4 @@ After selection, finish the [owner-facing code review flow](18-review-and-apply-
 
 ## Current boundary
 
-The voice tool currently supplies only a goal and Task kind. The coding executor currently uses the process's project directory and requires a clean Git root. See `electron/realtime-voice-client.ts`, `electron/task-runtime.ts`, and `electron/code-workspace.ts`.
+BMO requires a saved Git project before starting a coding Task. A missing or invalid folder produces a clear error before creation. A dirty checkout blocks isolated worktree creation without changing source. The live microphone walkthrough is still needed for the remaining acceptance item.

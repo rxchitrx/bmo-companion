@@ -9,7 +9,26 @@ contextBridge.exposeInMainWorld("companion", {
   stopRealtimeVoice: () => ipcRenderer.invoke("voice:realtime:stop"),
   getCurrentTask: () => ipcRenderer.invoke("task:get-current"),
   listConnectors: () => ipcRenderer.invoke("connectors:list"),
-  startTask: (goal, kind) => ipcRenderer.invoke("task:start", { goal, kind }),
+  startTask: (goal, kind, project) => ipcRenderer.invoke("task:start", { goal, kind, project }),
+  listProjects: () => ipcRenderer.invoke("projects:list"),
+  addProject: (name, verification) => ipcRenderer.invoke("projects:add", name, verification),
+  selectProject: (query) => ipcRenderer.invoke("projects:select", query),
+  renameProject: (id, name, aliases) => ipcRenderer.invoke("projects:rename", id, name, aliases),
+  removeProject: (id) => ipcRenderer.invoke("projects:remove", id),
+  onProjectsUpdate: (listener) => {
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on("projects:update", handler);
+    return () => ipcRenderer.removeListener("projects:update", handler);
+  },
+  getCodeReview: (taskId) => ipcRenderer.invoke("code-review:get", taskId),
+  listCodeReviews: () => ipcRenderer.invoke("code-review:list"),
+  onCodeReviewsUpdate: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on("code-review:update", handler);
+    return () => ipcRenderer.removeListener("code-review:update", handler);
+  },
+  applyCodeReview: (taskId) => ipcRenderer.invoke("code-review:apply", taskId),
+  discardCodeReview: (taskId) => ipcRenderer.invoke("code-review:discard", taskId),
   approveTask: (taskId) => ipcRenderer.invoke("task:approve", taskId),
   extendTaskApproval: (taskId) => ipcRenderer.invoke("task:extend-approval", taskId),
   recoverTask: (taskId) => ipcRenderer.invoke("task:recover", taskId),
