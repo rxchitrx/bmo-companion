@@ -57,6 +57,7 @@ export interface SafeCanaryRuntime {
 export interface SafeCanaryRuntimeResult {
   summary: string;
   verified: boolean;
+  failureCode?: "model-unavailable" | "turn-failed" | "empty-output";
   outputText?: string;
   events?: SafeCanaryRuntimeEvent[];
   toolCallNames?: string[];
@@ -335,6 +336,18 @@ export function createSafeLiveCanaryAdapter(
           detail: "Runtime-supplied verification evidence reached the kernel verifier.",
         })),
       ];
+      if (latestResult?.failureCode) {
+        const details = {
+          "model-unavailable": "model-unavailable: Codex rejected the selected model for this ChatGPT account.",
+          "turn-failed": "turn-failed: The Codex model turn failed before returning an answer.",
+          "empty-output": "empty-output: The Codex model turn completed without assistant text.",
+        };
+        verificationEvidence.push({
+          status: "measured",
+          kind: "runtime-event",
+          detail: details[latestResult.failureCode],
+        });
+      }
       if (safetyViolation) {
         verificationEvidence.push({
           status: "measured",

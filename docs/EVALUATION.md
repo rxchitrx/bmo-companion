@@ -16,13 +16,16 @@ Fixtures check the runner contract. They make no model or token measurements. JS
 The former `--live` flag has no runtime and now exits with an error. Use the explicit local read-only host. Choose a model, effort, and stable configuration identifier, then keep all three identical for baseline and candidate. The identifier should describe the harness settings being held constant, not the code revision.
 
 ```bash
-./node_modules/.bin/tsx evaluation/cli.ts --live-local-safe --model gpt-6-sol --effort medium --config-id standard-v1 --repeat 3 --json > /tmp/bmo-before.json
+# Set BMO_EVAL_MODEL to a model your subscription accepts before running.
+./node_modules/.bin/tsx evaluation/cli.ts --live-local-safe --model "$BMO_EVAL_MODEL" --effort low --config-id standard-v1 --repeat 3 --json > /tmp/bmo-before.json
 # Make the intended harness change.
-./node_modules/.bin/tsx evaluation/cli.ts --live-local-safe --model gpt-6-sol --effort medium --config-id standard-v1 --repeat 3 --json > /tmp/bmo-after.json
+./node_modules/.bin/tsx evaluation/cli.ts --live-local-safe --model "$BMO_EVAL_MODEL" --effort low --config-id standard-v1 --repeat 3 --json > /tmp/bmo-after.json
 npm run eval:canaries -- --compare --baseline /tmp/bmo-before.json --candidate /tmp/bmo-after.json
 ```
 
 The local host sends the selected model and effort to Codex app-server. It starts an ephemeral read-only thread with apps disabled and approval requests declined. Only zero-tool startup and ordinary conversation use model turns and produce token measurements. Approval, stop/cancel, and discovery use bounded local safety paths; their token fields are not model measurements. This mode is opt-in and may consume model quota. It never uses a connector, browser, Computer Use, or an external write.
+
+The CLI looks for Codex in the ChatGPT app, then in `~/.local/bin/codex`; `CODEX_CLI_PATH` overrides both. A rejected model remains a failed canary and now records a specific `model-unavailable` diagnostic instead of appearing only as an empty answer. On 2026-09-29, standalone Codex CLI 0.146.0 rejected `gpt-6-luna` for this ChatGPT account, so a Luna-only live baseline cannot pass through that binary. The three local safety cases still pass, but they do not replace the two model-backed checks.
 
 A series records each repetition, case set, mode, model, effort, executable SHA-256, evaluation-source SHA-256, a hash of the chosen configuration identifier and local Codex `config.toml`, and Git revision with a dirty-tree fingerprint when applicable. The comparator requires matching mode, runtime binary, model, effort, configuration fingerprint, evaluation source, canary set, and model-measured case set. It permits different Git revisions, because the candidate is expected to change code. Keep unrelated code/config changes out of the experiment. The CLI records the requested model/effort; the current protocol does not independently attest which model served the turn.
 

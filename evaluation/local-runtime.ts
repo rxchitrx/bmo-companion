@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { CanaryCase } from "./types";
 import type {
   SafeCanaryRuntime,
@@ -26,7 +28,10 @@ export interface LocalSafeCanaryRuntimeOptions {
   reasoningEffort?: string;
 }
 
-const DEFAULT_CODEX_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex";
+const DEFAULT_CODEX_PATH = [
+  "/Applications/ChatGPT.app/Contents/Resources/codex",
+  join(homedir(), ".local/bin/codex"),
+].find(existsSync) ?? "/Applications/ChatGPT.app/Contents/Resources/codex";
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 function readOnlyServerReply(
@@ -166,6 +171,14 @@ interface ReadOnlyTurnResult {
   completed: boolean;
   toolAttempted: boolean;
   serverRequestCount: number;
+  failureCode?: "model-unavailable" | "turn-failed" | "empty-output";
+}
+
+export function classifyReadOnlyTurnFailure(status: string | undefined, error: string | undefined, output: string) {
+  if (status === "completed" && output.trim()) return undefined;
+  if (error && /model is not supported when using Codex with a ChatGPT account/i.test(error)) return "model-unavailable" as const;
+  if (status !== "completed") return "turn-failed" as const;
+  return "empty-output" as const;
 }
 
 async function runReadOnlyCodexTurn(
@@ -191,7 +204,7 @@ async function runReadOnlyCodexTurn(
   let serverRequestCount = 0;
   let buffer = "";
   let nextId = 1;
-  let completion: { status?: string } | undefined;
+  let completion: { status?: string; error?: string } | undefined;
   let resolveTurn: ((value: { status?: string }) => void) | undefined;
   let rejectTurn: ((error: Error) => void) | undefined;
   const turnDone = new Promise<{ status?: string }>((resolve, reject) => {
@@ -306,6 +319,7 @@ async function runReadOnlyCodexTurn(
     if (message.method === "turn/completed") {
       completion = {
         status: typeof params.turn?.status === "string" ? params.turn.status : undefined,
+        error: typeof params.turn?.error?.message === "string" ? params.turn.error.message : undefined,
       };
       resolveTurn?.(completion);
     }
@@ -395,6 +409,7 @@ async function runReadOnlyCodexTurn(
       completed: completion?.status === "completed" && finalText.trim().length > 0,
       toolAttempted,
       serverRequestCount,
+      failureCode: classifyReadOnlyTurnFailure(completion?.status, completion?.error, finalText),
     };
   } finally {
     clearTimeout(timeout);
@@ -433,6 +448,7 @@ export function createLocalSafeCanaryRuntime(
           : "UNVERIFIED: The read-only local canary did not settle a safe zero-tool turn.",
         outputText: result.outputText,
         verified: supports,
+        failureCode: result.failureCode,
         usage: result.usage,
         timing: result.timing,
         verificationEvidence: evidence(

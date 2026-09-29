@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { canaryCases } from "./canaries";
 import { deterministicFixtureAdapter } from "./fixtures";
 import { createPreAuthorizedLocalCanaryAdapter } from "./local-host";
@@ -49,7 +50,10 @@ if (process.argv.includes("--compare")) {
   if (localSafe && (!model || !effort || !configId)) {
     throw new Error("--live-local-safe requires --model, --effort, and --config-id to record comparable settings.");
   }
-  const codexPath = process.env.CODEX_CLI_PATH ?? "/Applications/ChatGPT.app/Contents/Resources/codex";
+  const codexPath = process.env.CODEX_CLI_PATH ?? [
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    join(homedir(), ".local/bin/codex"),
+  ].find(existsSync) ?? "/Applications/ChatGPT.app/Contents/Resources/codex";
   const runtime = localSafe
     ? `codex-app-server:${createHash("sha256").update(await readFile(codexPath)).digest("hex")}`
     : "deterministic-fixture";

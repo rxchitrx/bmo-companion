@@ -6,6 +6,7 @@ import { compareEvaluationRuns } from "../evaluation/comparison";
 import { deterministicFixtureAdapter } from "../evaluation/fixtures";
 import { createSafeLiveCanaryAdapter, type SafeCanaryRuntime } from "../evaluation/live-adapter";
 import { createPreAuthorizedLocalCanaryAdapter } from "../evaluation/local-host";
+import { classifyReadOnlyTurnFailure } from "../evaluation/local-runtime";
 import {
   toComparisonMarkdown,
   toJson,
@@ -30,6 +31,33 @@ test("the permanent spine defines exactly the five baseline canaries", () => {
       "connector-discovery-budget",
     ],
   );
+});
+
+test("read-only canaries distinguish an unsupported subscription model from an empty answer", () => {
+  const unsupported = JSON.stringify({ error: { message: "The 'gpt-6-luna' model is not supported when using Codex with a ChatGPT account." } });
+  assert.equal(classifyReadOnlyTurnFailure("failed", unsupported, ""), "model-unavailable");
+  assert.equal(classifyReadOnlyTurnFailure("failed", "upstream error", ""), "turn-failed");
+  assert.equal(classifyReadOnlyTurnFailure("completed", undefined, ""), "empty-output");
+  assert.equal(classifyReadOnlyTurnFailure("completed", undefined, "CANARY_OK"), undefined);
+});
+
+test("a rejected model remains a failed canary with a specific safe diagnostic", async () => {
+  const canary = canaryCases[0]!;
+  const now = new Date("2026-01-01T09:00:00.000Z");
+  const scope = createTaskAuthorityScope({ taskId: "model-rejected", goal: canary.prompt, taskKind: "general" });
+  const runtime: SafeCanaryRuntime = { async run(context) {
+    context.turnStarted();
+    return { summary: "UNVERIFIED: Model rejected.", outputText: "", verified: false, failureCode: "model-unavailable" };
+  } };
+  const [result] = await runCanaries([canary], createSafeLiveCanaryAdapter({
+    runtime,
+    execution: { kind: "general", taskId: "model-rejected", authority: allowTaskAuthority(scope, now, new Date("2026-01-01T11:00:00.000Z")) },
+    now: () => now,
+  }));
+  assert.equal(result.outcome.verdict, "fail");
+  assert.ok(result.verificationEvidence.some((item) => /rejected the selected model for this ChatGPT account/.test(item.detail)));
+  assert.equal(result.input.status, "pending");
+  assert.deepEqual(validateEvaluationResult(result), []);
 });
 
 test("deterministic fixtures produce valid results without invented live telemetry", async () => {
