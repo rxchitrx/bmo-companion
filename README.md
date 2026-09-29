@@ -29,6 +29,8 @@ The implementation decisions and safety model are in [the PRD](docs/COMPANION_PR
 - `docs/CONTEXT-PACKETS.md` — Context Packet inclusion, budget, history, and privacy boundaries.
 - `reliability_lab/README.md` — offline Python baseline-versus-candidate replay analysis.
 - `electron/execution-kernel.ts` — one-worker Task orchestration and the typed VerifiedOutcome boundary.
+- `electron/interaction-router.ts` — shared voice/typed owner-turn routing, scoped task dispatch, and bounded cross-mode context.
+- `docs/INTERACTION-ROUTER.md` — route and capability safety contract.
 - `electron/execution-guardrails.ts` — bounded cost/runaway counters and deterministic stop outcomes.
 - `docs/EXECUTION-KERNEL.md` — execution flow, lifecycle event contract, and integration requirements.
 - `docs/issues/17-select-a-project-by-voice.md` through `21-voice-first-local-routing.md` — project selection, code review, verification, live voice validation, and the guarded local router.

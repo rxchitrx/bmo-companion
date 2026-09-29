@@ -14,6 +14,7 @@ import {
 import type { TaskSnapshot } from "./task-runtime.js";
 import type { SavedProject } from "./project-registry.js";
 import type { LayaRouter, RouteDecision } from "./laya-router.js";
+import type { BmoInteractionRouter } from "./interaction-router.js";
 import {
   CONNECTOR_DYNAMIC_TOOLS,
   ConnectorToolBridge,
@@ -181,6 +182,7 @@ export class CodexRealtimeVoiceClient {
     private readonly listProjects?: () => Promise<{ projects: SavedProject[]; activeId?: string }>,
     private readonly selectProject?: (query: string) => Promise<SavedProject>,
     private readonly router?: LayaRouter,
+    private readonly interactionRouter?: BmoInteractionRouter,
   ) {}
 
   get active() {
@@ -263,6 +265,7 @@ export class CodexRealtimeVoiceClient {
             text: taskSnapshotToRealtimeContext(this.latestTask),
           }]
         : [];
+      if (this.interactionRouter) initialItems.push({ role: "developer", text: await this.interactionRouter.sharedContext("voice") });
       const realtimeParams = {
         threadId: this.threadId,
         outputModality: "audio",
@@ -514,6 +517,24 @@ export class CodexRealtimeVoiceClient {
     }
   }
 
+  async syncSharedTypedContext(): Promise<boolean> {
+    const connection = this.connection;
+    const threadId = this.threadId;
+    if (!this.interactionRouter || !connection?.running || !threadId) return false;
+    try {
+      const context = await this.interactionRouter.sharedContext("voice");
+      if (this.connection !== connection || this.threadId !== threadId) return false;
+      await connection.request("thread/realtime/appendText", { threadId, role: "developer", text: context });
+      diagnosticLog("voice.realtime", "shared_typed_context.synced", { threadId });
+      return true;
+    } catch (error) {
+      diagnosticLog("voice.realtime", "shared_typed_context.sync_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
   private handleNotification(message: JsonRpcMessage) {
     const sessionId = this.sessionId;
     if (!sessionId) return;
@@ -542,17 +563,30 @@ export class CodexRealtimeVoiceClient {
       if (role === "user" && isOwnerStopTranscript(transcript)) {
         this.lastUserTranscriptWasStop = true;
         this.connectorTools?.resetDiscovery();
+        this.interactionRouter?.endChannel("voice");
         this.enforceOwnerStop(sessionId);
         return;
       }
       if (role === "user") {
         this.lastUserTranscriptWasStop = false;
+        if (!transcript) {
+          this.interactionRouter?.endChannel("voice");
+          this.connectorTools?.resetDiscovery();
+          return;
+        }
+        try { this.interactionRouter?.beginTurn("voice", transcript); }
+        catch (error) {
+          this.connectorTools?.resetDiscovery();
+          this.publish({ sessionId, status: "connected", error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
         this.connectorTools?.beginOwnerTurn(transcript);
-        this.latestRoute = this.router?.route(transcript).then((decision) => {
+        this.latestRoute = !this.interactionRouter && this.router ? this.router.route(transcript).then((decision) => {
           diagnosticLog("voice.route", "local_decision", { route: decision?.route, confidence: decision?.confidence, used: !!decision && decision.confidence >= 0.8 });
           return decision;
-        }) ?? null;
+        }) : null;
       }
+      if (role === "assistant") this.interactionRouter?.recordAssistant("voice", transcript);
       if (role === "assistant") this.transcripts.assistant = "";
       if (role === "user") this.transcripts.user = "";
     } else if (message.method === "thread/realtime/outputAudio/delta") {
@@ -629,6 +663,10 @@ export class CodexRealtimeVoiceClient {
       };
     }
     if (message.params?.tool === "list_projects") {
+      if (this.interactionRouter) {
+        const route = await this.interactionRouter.authorize("voice", "project");
+        if (!route.allowed) return { result: { success: false, contentItems: [{ type: "inputText", text: route.reason }] } };
+      }
       const state = await this.listProjects?.();
       return { result: { success: !!state, contentItems: [{ type: "inputText", text: state
         ? JSON.stringify({ active: state.projects.find((project) => project.id === state.activeId)?.name ?? null, projects: state.projects.map((project) => ({ name: project.name, aliases: project.aliases })) })
@@ -639,7 +677,7 @@ export class CodexRealtimeVoiceClient {
         const raw = message.params.arguments;
         const args = typeof raw === "string" ? JSON.parse(raw) as { name?: unknown } : raw as { name?: unknown };
         if (!args || typeof args.name !== "string" || !args.name.trim()) throw new Error("Name required.");
-        const project = await this.selectProject?.(args.name);
+        const project = this.interactionRouter ? await this.interactionRouter.selectProject("voice", args.name) : await this.selectProject?.(args.name);
         if (!project) throw new Error("Project selection is unavailable.");
         return { result: { success: true, contentItems: [{ type: "inputText", text: `Active project: ${project.name}. No Task was started.` }] } };
       } catch (error) {
@@ -689,6 +727,18 @@ export class CodexRealtimeVoiceClient {
     const kind = (["general", "coding", "computer", "browser"].includes(rawKind)
       ? rawKind
       : "general") as "general" | "coding" | "computer" | "browser";
+    if (this.interactionRouter) {
+      try {
+        const task = await this.interactionRouter.createTask("voice", goal, kind, args.retry === true,
+          typeof args.project === "string" ? args.project : undefined);
+        this.latestTask = structuredClone(task);
+        return { result: { success: true, contentItems: [{ type: "inputText",
+          text: `${taskSnapshotToRealtimeContext(task)}\nThe BMO app shows any required approval. Do not claim execution finished before Task State confirms it.` }] } };
+      } catch (error) {
+        return { result: { success: false, contentItems: [{ type: "inputText",
+          text: error instanceof Error ? error.message : "BMO could not route this Task." }] } };
+      }
+    }
     const route = await this.latestRoute;
     if (route && route.confidence >= 0.8) {
       if (route.route === "conversation" || route.route === "project" || route.route === "connector") {
@@ -773,7 +823,7 @@ export class CodexRealtimeVoiceClient {
       sessionId,
       cancelledConnectorReads,
     });
-    void this.stopActiveTask()
+    void (this.interactionRouter ? this.interactionRouter.stop("voice") : this.stopActiveTask())
       .then(async (taskStopped) => {
         const stopped = taskStopped || cancelledConnectorReads > 0;
         diagnosticLog("voice.realtime", "owner_stop.task_cancelled", {
@@ -805,6 +855,7 @@ export class CodexRealtimeVoiceClient {
   }
 
   private clearConnection(reason: string) {
+    this.interactionRouter?.endChannel("voice");
     this.removeNotificationListener?.();
     this.removeNotificationListener = null;
     this.connection?.stop(reason);

@@ -4,7 +4,7 @@ import type { RecoveryObserver, TaskExecutor, TaskSnapshot, TokenUsage } from ".
 export interface ConversationUpdate {
   requestId: string;
   status: "connecting" | "sending" | "responding" | "completed" | "degraded" | "failed";
-  transport: "realtime" | "codex-turn";
+  transport: "realtime" | "codex-turn" | "bmo-route";
   assistantText?: string;
   warning?: string;
   error?: string;
@@ -36,6 +36,7 @@ export interface CompanionVoiceEngine {
   stop(reason?: string): Promise<void>;
   syncTask(task: TaskSnapshot): Promise<void>;
   syncConnectorSignal(signal: ConnectorSignal): Promise<boolean>;
+  syncSharedTypedContext(): Promise<boolean>;
 }
 
 export interface CompanionEngine {

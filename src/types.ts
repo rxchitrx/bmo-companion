@@ -194,7 +194,7 @@ export type ConversationStatus =
 export interface ConversationUpdate {
   requestId: string;
   status: ConversationStatus;
-  transport: "realtime" | "codex-turn";
+  transport: "realtime" | "codex-turn" | "bmo-route";
   assistantText?: string;
   warning?: string;
   error?: string;

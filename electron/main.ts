@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, screen, session } from "electron";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { createCodexInteractionEngine } from "./codex-engine.js";
 import { createBmoTaskEngine } from "./task-engine.js";
 import type { CompanionConversationEngine, CompanionVoiceEngine, ConversationUpdate, RealtimeVoiceUpdate } from "./companion-engine.js";
 import { diagnosticLog, sanitizeDiagnostic, textMeta } from "./diagnostics.js";
-import { JsonlActivityLedger, JsonTaskStore, TaskRuntime } from "./task-runtime.js";
+import { JsonlActivityLedger, JsonTaskStore, TaskRuntime, type TaskSnapshot } from "./task-runtime.js";
 import { CompanionMemoryService, JsonMemoryStore } from "./memory-service.js";
 import { ComputerUseHealth } from "./computer-use-health.js";
 import {
@@ -28,6 +29,8 @@ import { JsonToolCallJournal, ToolDispatcher } from "./tool-dispatch.js";
 import { ProjectRegistry, type VerificationPreset } from "./project-registry.js";
 import { CodeReviewService } from "./code-review.js";
 import { LayaRouter } from "./laya-router.js";
+import { BmoInteractionRouter, handleDirectTypedRequest } from "./interaction-router.js";
+import { isOwnerStopTranscript } from "./realtime-voice-client.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
@@ -39,6 +42,7 @@ let realtimeVoice: CompanionVoiceEngine;
 let connectorGateway: ConnectorGateway;
 let projects: ProjectRegistry;
 let codeReview: CodeReviewService;
+let interactionRouter: BmoInteractionRouter;
 const layaRouter = new LayaRouter();
 let modelCatalogPromise: ReturnType<typeof listAvailableModels> | null = null;
 const computerUseHealth = new ComputerUseHealth();
@@ -203,34 +207,57 @@ app.whenReady().then(async () => {
     undefined,
     memory,
   );
-  const connectorTools = new ConnectorToolBridge({
-    gateway: connectorGateway,
-    startTask: (call) => runtime.create(connectorCallGoal(call), {
-      kind: "connector",
-      connectorCall: call,
-    }),
-    readCurrentTask: () => runtime.currentTask(),
+  let connectorTools: ConnectorToolBridge;
+  let voiceConnectorTools: ConnectorToolBridge;
+  const startScopedTask = async (goal: string, kind: "general" | "coding" | "computer" | "browser", retryOf?: TaskSnapshot, projectQuery?: string) => {
+    const selection = modelSettings.selection(kind);
+    const project = kind === "coding" ? await projects.snapshot(projectQuery) : undefined;
+    return retryOf
+      ? runtime.createRetry(retryOf.id, goal, { kind, ...selection, project })
+      : runtime.create(goal, { kind, ...selection, project });
+  };
+  interactionRouter = new BmoInteractionRouter({
+    path: join(app.getPath("userData"), "interaction-session.json"),
+    readTask: () => runtime.currentTask(),
+    startTask: startScopedTask,
+    stopTask: () => runtime.cancelActive(),
+    listProjects: () => projects.list(),
+    selectProject: async (query) => {
+      const project = await projects.select(query);
+      mainWindow?.webContents.send("projects:update", await projects.list());
+      return project;
+    },
+    laya: layaRouter,
+    onBeginTurn: () => {
+      connectorTools?.cancelActiveReads(); connectorTools?.resetDiscovery();
+      voiceConnectorTools?.cancelActiveReads(); voiceConnectorTools?.resetDiscovery();
+    },
   });
-  const voiceConnectorTools = new ConnectorToolBridge({
+  await interactionRouter.load();
+  connectorTools = new ConnectorToolBridge({
     gateway: connectorGateway,
     startTask: (call) => runtime.create(connectorCallGoal(call), {
       kind: "connector",
       connectorCall: call,
     }),
     readCurrentTask: () => runtime.currentTask(),
+    authorize: () => interactionRouter.authorize("typed", "connector"),
+  });
+  voiceConnectorTools = new ConnectorToolBridge({
+    gateway: connectorGateway,
+    startTask: (call) => runtime.create(connectorCallGoal(call), {
+      kind: "connector",
+      connectorCall: call,
+    }),
+    readCurrentTask: () => runtime.currentTask(),
+    authorize: () => interactionRouter.authorize("voice", "connector"),
   });
   const interactions = createCodexInteractionEngine({
     readTask: () => runtime.currentTask(),
     readConversationModel: () => modelSettings.selection("conversation"),
     connectorTools,
     voiceConnectorTools,
-    startTask: async (goal, kind, retryOf, projectQuery) => {
-      const selection = modelSettings.selection(kind);
-      const project = kind === "coding" ? await projects.snapshot(projectQuery) : undefined;
-      return retryOf
-        ? runtime.createRetry(retryOf.id, goal, { kind, ...selection, project })
-        : runtime.create(goal, { kind, ...selection, project });
-    },
+    startTask: startScopedTask,
     stopTask: () => runtime.cancelActive(),
     listProjects: () => projects.list(),
     selectProject: async (query) => {
@@ -240,6 +267,7 @@ app.whenReady().then(async () => {
       return project;
     },
     router: layaRouter,
+    interactionRouter,
   });
   conversation = interactions.conversation;
   realtimeVoice = interactions.voice;
@@ -267,7 +295,19 @@ ipcMain.handle("conversation:send", async (_event, rawText: string) => {
   const startedAt = Date.now();
   diagnosticLog("main", "ipc.conversation.send", { text: textMeta(text) });
   try {
+    const localReply = (assistantText: string): ConversationUpdate => {
+      const update: ConversationUpdate = { requestId: randomUUID(), status: "completed", transport: "bmo-route", assistantText };
+      emitConversation(update);
+      return update;
+    };
+    const direct = await handleDirectTypedRequest(interactionRouter, text, isOwnerStopTranscript(text));
+    if (direct !== null) {
+      const update = localReply(direct);
+      void realtimeVoice.syncSharedTypedContext();
+      return update;
+    }
     const result = await conversation.send(text, emitConversation);
+    void realtimeVoice.syncSharedTypedContext();
     diagnosticLog("main", "ipc.conversation.resolved", {
       requestId: result.requestId,
       status: result.status,
@@ -326,10 +366,9 @@ ipcMain.handle("task:start", async (_event, payload: { goal?: unknown; kind?: un
   if (goal.length > TASK_GOAL_MAX_CHARS) {
     throw new Error(`Task goal exceeds the ${TASK_GOAL_MAX_CHARS}-character Context Packet limit.`);
   }
-  const selection = modelSettings.selection(kind);
-  const project = kind === "coding" ? await projects.snapshot(typeof payload?.project === "string" ? payload.project : undefined) : undefined;
+  interactionRouter.beginTurn("typed", goal, kind);
   diagnosticLog("main", "ipc.task.start", { goal: textMeta(goal) });
-  return runtime.create(goal, { kind, ...selection, project });
+  return interactionRouter.createTask("typed", goal, kind, false, typeof payload?.project === "string" ? payload.project : undefined);
 });
 ipcMain.handle("projects:list", () => projects.list());
 ipcMain.handle("projects:add", async (_event, name: string, verification: VerificationPreset) => {

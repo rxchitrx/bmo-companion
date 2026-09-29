@@ -7,6 +7,7 @@ import type { ConnectorToolBridge } from "./connector-tools.js";
 import type { ComputerUseHealth } from "./computer-use-health.js";
 import type { SavedProject } from "./project-registry.js";
 import type { LayaRouter } from "./laya-router.js";
+import type { BmoInteractionRouter } from "./interaction-router.js";
 
 export function createCodexTaskEngine(computerUseHealth: ComputerUseHealth, codeWorkspacesDirectory: string): Pick<CompanionEngine, "taskExecutor" | "recoveryObserver"> {
   return {
@@ -25,9 +26,10 @@ export function createCodexInteractionEngine(options: {
   listProjects?: () => Promise<{ projects: SavedProject[]; activeId?: string }>;
   selectProject?: (query: string) => Promise<SavedProject>;
   router?: LayaRouter;
+  interactionRouter?: BmoInteractionRouter;
 }): Pick<CompanionEngine, "conversation" | "voice"> {
   return {
-    conversation: new CodexConversationClient(options.readTask, options.readConversationModel, options.connectorTools),
-    voice: new CodexRealtimeVoiceClient(options.startTask, options.stopTask, options.readTask, options.voiceConnectorTools ?? options.connectorTools, options.listProjects, options.selectProject, options.router),
+    conversation: new CodexConversationClient(options.readTask, options.readConversationModel, options.connectorTools, options.interactionRouter),
+    voice: new CodexRealtimeVoiceClient(options.startTask, options.stopTask, options.readTask, options.voiceConnectorTools ?? options.connectorTools, options.listProjects, options.selectProject, options.router, options.interactionRouter),
   };
 }

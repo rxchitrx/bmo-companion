@@ -170,6 +170,7 @@ export function App() {
   const [codeReviewError, setCodeReviewError] = useState("");
   const [ambientNotice, setAmbientNotice] = useState("");
   const [taskKind, setTaskKind] = useState<TaskKind>("general");
+  const [taskCreateError, setTaskCreateError] = useState("");
   const sessionRef = useRef<CodexRealtimeVoiceSession | null>(null);
   const lastSpokenRef = useRef("");
   const lastTaskStatusRef = useRef<TaskSnapshot["status"] | null>(null);
@@ -589,10 +590,12 @@ export function App() {
     if (!trimmed || taskActive || conversationBusy) return;
     clientDiagnostic("ui.task", "create.requested", { goal: trimmed });
     setRecall(null);
+    setTaskCreateError("");
     try {
       setTask(await window.companion.startTask(trimmed, taskKind, taskKind === "coding" ? projects.activeId : undefined));
       setGoal("");
     } catch (error) {
+      setTaskCreateError(error instanceof Error ? error.message : String(error));
       clientDiagnostic("ui.task", "create.rejected", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1052,6 +1055,7 @@ export function App() {
             <button type="button" className="button-text" onClick={() => setTextFallbackOpen(true)}>Type instead</button>
             {task?.status === "running" && <button type="button" className="button-stop button-compact" onClick={() => window.companion.cancelTask(task.id)}>Stop task</button>}
           </div>}
+          {taskCreateError && <p className="model-panel__error" role="alert">{taskCreateError}</p>}
           {textFallbackOpen && <>
           <form onSubmit={submit}>
             <label className="sr-only" htmlFor="goal">Ask BMO anything</label>
